@@ -5,7 +5,12 @@ import 'package:gym_tracker/screens/login_screen.dart';
 import 'package:gym_tracker/screens/home_screen.dart';
 import 'package:gym_tracker/screens/signup_screen.dart';
 import 'package:gym_tracker/screens/add_exercise_screen.dart';
+import 'package:gym_tracker/screens/new_exercise_screen.dart';
+import 'package:gym_tracker/screens/record_exercise_screen.dart';
+import 'package:gym_tracker/screens/log_session_screen.dart';
 import 'package:gym_tracker/screens/settings_screen.dart';
+import 'package:gym_tracker/screens/history_screen.dart';
+import 'package:gym_tracker/screens/exercise_history_screen.dart';
 import 'package:gym_tracker/providers/theme_provider.dart';
 
 final lightTheme = ThemeData(
@@ -63,6 +68,11 @@ class MyApp extends StatelessWidget {
         '/signup': (context) => const SignupScreen(),
         '/home': (context) => const HomeScreen(),
         '/add_exercise': (context) => const AddExerciseScreen(),
+        '/new_exercise': (context) => const NewExerciseScreen(),
+        '/record_exercise': (context) => const RecordExerciseScreen(),
+        '/log_session': (context) => const LogSessionScreen(),
+        '/history': (context) => const HistoryScreen(),
+        '/history/exercise': (context) => const ExerciseHistoryScreen(),
         '/settings': (context) => const SettingsScreen(),
       },
     );
