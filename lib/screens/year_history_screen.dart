@@ -230,10 +230,18 @@ class _YearHistoryScreenState extends State<YearHistoryScreen> {
       final weekStart = firstDay.add(
         Duration(days: weekIndex * 7 - startOffset),
       );
-      final monthLabel = weekIndex == 0 || weekStart.month != previousMonth
-          ? _monthLabel(weekStart.month)
+
+      // If the start of the week was pushed into the previous month to align with Sunday,
+      // base the label on the actual first day of our grid range instead.
+      final representativeDate = weekStart.isBefore(firstDay)
+          ? firstDay
+          : weekStart;
+      final currentMonth = representativeDate.month;
+
+      final monthLabel = weekIndex == 0 || currentMonth != previousMonth
+          ? _monthLabel(currentMonth)
           : '';
-      previousMonth = weekStart.month;
+      previousMonth = currentMonth;
 
       rows.add(
         Padding(
@@ -304,6 +312,8 @@ class _YearHistoryScreenState extends State<YearHistoryScreen> {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: rows);
   }
 
+  // --- MISSING HELPERS RESTORED BELOW ---
+
   String _formatDate(DateTime date) {
     return '${_monthLabel(date.month)} ${date.day}, ${date.year}';
   }
@@ -325,4 +335,4 @@ class _YearHistoryScreenState extends State<YearHistoryScreen> {
     ];
     return months[month - 1];
   }
-} // This closes _YearHistoryScreenState
+} // <-- This is the final closing bracket for _YearHistoryScreenState
