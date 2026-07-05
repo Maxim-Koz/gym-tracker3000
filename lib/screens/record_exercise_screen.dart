@@ -37,6 +37,12 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
     for (final row in _normalRows) {
       (row['weight'] as TextEditingController?)?.dispose();
       (row['reps'] as TextEditingController?)?.dispose();
+      final restPauses = row['restPauses'] as List<TextEditingController>?;
+      if (restPauses != null) {
+        for (final pauseController in restPauses) {
+          pauseController.dispose();
+        }
+      }
     }
     for (final group in _dropGroups) {
       for (final row in group.rows) {
@@ -51,6 +57,12 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
       for (final row in _normalRows) {
         (row['weight'] as TextEditingController?)?.dispose();
         (row['reps'] as TextEditingController?)?.dispose();
+        final restPauses = row['restPauses'] as List<TextEditingController>?;
+        if (restPauses != null) {
+          for (final pauseController in restPauses) {
+            pauseController.dispose();
+          }
+        }
       }
       for (final group in _dropGroups) {
         for (final row in group.rows) {
@@ -67,8 +79,27 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
           'weight': TextEditingController(),
           'reps': TextEditingController(),
           'unit': 'kg',
+          'restPauses': <TextEditingController>[],
         });
       }
+    });
+  }
+
+  void _addRestPause(int rowIndex) {
+    setState(() {
+      final row = _normalRows[rowIndex];
+      final restPauses = row['restPauses'] as List<TextEditingController>?;
+      restPauses?.add(TextEditingController());
+    });
+  }
+
+  void _removeRestPause(int rowIndex, int pauseIndex) {
+    setState(() {
+      final row = _normalRows[rowIndex];
+      final restPauses = row['restPauses'] as List<TextEditingController>?;
+      if (restPauses == null || pauseIndex >= restPauses.length) return;
+      restPauses[pauseIndex].dispose();
+      restPauses.removeAt(pauseIndex);
     });
   }
 
@@ -86,6 +117,7 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
         'weight': TextEditingController(),
         'reps': TextEditingController(),
         'unit': 'kg',
+        'restPauses': <TextEditingController>[],
       });
     });
   }
@@ -164,12 +196,22 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
           groupIndex: groupIndex,
         );
       } else {
-        await DBHelper().insertSet(
+        final setId = await DBHelper().insertSet(
           sessionId,
           entry['weight'] as double,
           entry['reps'] as int,
           entry['unit'] as String,
         );
+        final restPauses = entry['restPauses'] as List<int>? ?? [];
+        for (final pauseReps in restPauses) {
+          await DBHelper().insertSet(
+            sessionId,
+            entry['weight'] as double,
+            pauseReps,
+            entry['unit'] as String,
+            parentSetId: setId,
+          );
+        }
       }
     }
 
@@ -374,51 +416,110 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
                         final row = _normalRows[index];
                         return Padding(
                           padding: const EdgeInsets.symmetric(vertical: 6.0),
-                          child: Row(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Expanded(
-                                child: TextField(
-                                  controller: row['weight'],
-                                  keyboardType:
-                                      const TextInputType.numberWithOptions(
-                                        decimal: true,
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: TextField(
+                                      controller: row['weight'],
+                                      keyboardType:
+                                          const TextInputType.numberWithOptions(
+                                            decimal: true,
+                                          ),
+                                      decoration: const InputDecoration(
+                                        labelText: 'Weight',
                                       ),
-                                  decoration: const InputDecoration(
-                                    labelText: 'Weight',
+                                    ),
                                   ),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              DropdownButton<String>(
-                                value: row['unit'] as String?,
-                                items: const [
-                                  DropdownMenuItem(
-                                    value: 'kg',
-                                    child: Text('kg'),
+                                  const SizedBox(width: 8),
+                                  DropdownButton<String>(
+                                    value: row['unit'] as String?,
+                                    items: const [
+                                      DropdownMenuItem(
+                                        value: 'kg',
+                                        child: Text('kg'),
+                                      ),
+                                      DropdownMenuItem(
+                                        value: 'lb',
+                                        child: Text('lb'),
+                                      ),
+                                    ],
+                                    onChanged: (value) =>
+                                        setState(() => row['unit'] = value),
                                   ),
-                                  DropdownMenuItem(
-                                    value: 'lb',
-                                    child: Text('lb'),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: TextField(
+                                      controller: row['reps'],
+                                      keyboardType: TextInputType.number,
+                                      decoration: const InputDecoration(
+                                        labelText: 'Reps',
+                                      ),
+                                    ),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.add_reaction),
+                                    tooltip: 'Add rest pause',
+                                    onPressed: () => _addRestPause(index),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.delete),
+                                    onPressed: () => setState(
+                                      () => _normalRows.removeAt(index),
+                                    ),
                                   ),
                                 ],
-                                onChanged: (value) =>
-                                    setState(() => row['unit'] = value),
                               ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: TextField(
-                                  controller: row['reps'],
-                                  keyboardType: TextInputType.number,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Reps',
-                                  ),
+                              const SizedBox(height: 4),
+                              if ((row['restPauses']
+                                          as List<TextEditingController>?)
+                                      ?.isNotEmpty ??
+                                  false)
+                                ...List.generate(
+                                  (row['restPauses']
+                                          as List<TextEditingController>)
+                                      .length,
+                                  (pauseIndex) {
+                                    final pauseController =
+                                        (row['restPauses']
+                                            as List<
+                                              TextEditingController
+                                            >)[pauseIndex];
+                                    return Padding(
+                                      padding: const EdgeInsets.only(top: 6.0),
+                                      child: Row(
+                                        children: [
+                                          Expanded(
+                                            child: TextField(
+                                              controller: pauseController,
+                                              keyboardType:
+                                                  TextInputType.number,
+                                              decoration: InputDecoration(
+                                                labelText: 'Rest pause reps',
+                                                border: OutlineInputBorder(
+                                                  borderRadius:
+                                                      BorderRadius.circular(8),
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                          IconButton(
+                                            icon: const Icon(
+                                              Icons.delete_outline,
+                                            ),
+                                            tooltip: 'Remove rest pause',
+                                            onPressed: () => _removeRestPause(
+                                              index,
+                                              pauseIndex,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  },
                                 ),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.delete),
-                                onPressed: () =>
-                                    setState(() => _normalRows.removeAt(index)),
-                              ),
                             ],
                           ),
                         );
@@ -465,14 +566,34 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
   // group_index (i.e. it was recorded as part of a drop set), the sets are
   // clustered under a "Drop set group N" header instead of shown flat.
   List<Widget> _buildSetRows(List<Map<String, dynamic>> sets) {
-    final hasGroups = sets.any((s) => s['group_index'] != null);
+    final childrenByParent = <int, List<Map<String, dynamic>>>{};
+    final parentRows = <Map<String, dynamic>>[];
+
+    for (final setRow in sets) {
+      final parentId = setRow['parent_set_id'] as int?;
+      if (parentId != null) {
+        childrenByParent.putIfAbsent(parentId, () => []).add(setRow);
+      } else {
+        parentRows.add(setRow);
+      }
+    }
+
+    final hasGroups = parentRows.any((s) => s['group_index'] != null);
+
+    Widget buildRowWithChildren(Map<String, dynamic> row) {
+      final id = row['id'] as int?;
+      final children = id == null
+          ? <Map<String, dynamic>>[]
+          : childrenByParent[id] ?? [];
+      return _buildSingleSetRow(row, children: children);
+    }
 
     if (!hasGroups) {
-      return sets.map((setRow) => _buildSingleSetRow(setRow)).toList();
+      return parentRows.map((setRow) => buildRowWithChildren(setRow)).toList();
     }
 
     final grouped = <int, List<Map<String, dynamic>>>{};
-    for (final setRow in sets) {
+    for (final setRow in parentRows) {
       final groupIndex = setRow['group_index'] as int? ?? 0;
       grouped.putIfAbsent(groupIndex, () => []).add(setRow);
     }
@@ -493,7 +614,7 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
         grouped[key]!.map(
           (setRow) => Padding(
             padding: const EdgeInsets.only(left: 8.0),
-            child: _buildSingleSetRow(setRow),
+            child: buildRowWithChildren(setRow),
           ),
         ),
       );
@@ -501,19 +622,50 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
     return widgets;
   }
 
-  Widget _buildSingleSetRow(Map<String, dynamic> setRow) {
+  Widget _buildSingleSetRow(
+    Map<String, dynamic> setRow, {
+    List<Map<String, dynamic>> children = const <Map<String, dynamic>>[],
+  }) {
     final weight = setRow['weight'];
-    final reps = setRow['reps'];
     final unit = setRow['unit'];
+    String weightText;
+    if (weight == null) {
+      weightText = '-';
+    } else if (weight is double) {
+      weightText = weight.toStringAsFixed(1);
+    } else {
+      weightText = weight.toString();
+    }
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2.0),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text('${weight ?? '-'} ${unit ?? ''}'.trim()),
-          Text('$reps reps'),
+          Text('${weightText} ${unit ?? ''}'.trim()),
+          Text(_formatRepsDisplay(setRow, children)),
         ],
       ),
     );
+  }
+
+  String _formatRepsDisplay(
+    Map<String, dynamic> setRow,
+    List<Map<String, dynamic>> children,
+  ) {
+    final values = <String>[];
+    final mainReps = setRow['reps'];
+    if (mainReps != null) {
+      values.add(mainReps.toString());
+    }
+    for (final child in children) {
+      final childReps = child['reps'];
+      if (childReps != null) {
+        values.add(childReps.toString());
+      }
+    }
+    if (values.isEmpty) {
+      return '-';
+    }
+    return values.join(', ');
   }
 }

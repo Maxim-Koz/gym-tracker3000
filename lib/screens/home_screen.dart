@@ -94,6 +94,12 @@ class _HomeScreenState extends State<HomeScreen> {
               label: const Text('View more logged days'),
             ),
             const SizedBox(height: 12),
+            ElevatedButton.icon(
+              onPressed: () => Navigator.of(context).pushNamed('/stats'),
+              icon: const Icon(Icons.insights_outlined),
+              label: const Text('Stats'),
+            ),
+            const SizedBox(height: 12),
             GestureDetector(
               onTap: () => Navigator.of(context).pushNamed('/history'),
               child: Container(

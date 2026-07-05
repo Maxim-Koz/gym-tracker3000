@@ -21,7 +21,7 @@ class DBHelper {
     final path = join(databasesPath, 'gym_tracker.db');
     return await openDatabase(
       path,
-      version: 3,
+      version: 4,
       onCreate: (db, version) async {
         await db.execute('''
         CREATE TABLE exercises (
@@ -49,7 +49,9 @@ class DBHelper {
           reps INTEGER,
           unit TEXT,
           group_index INTEGER,
-          FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+          parent_set_id INTEGER,
+          FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+          FOREIGN KEY(parent_set_id) REFERENCES sets(id) ON DELETE CASCADE
         )
       ''');
       },
@@ -81,14 +83,24 @@ class DBHelper {
         }
 
         if (oldVersion < 3) {
-          // Tags each set with which drop-set group it belonged to (null
-          // for normal sets, or for sets recorded before this column existed).
           final columns = await db.rawQuery('PRAGMA table_info(sets)');
           final hasGroupIndex = columns.any(
             (col) => col['name'] == 'group_index',
           );
           if (!hasGroupIndex) {
             await db.execute('ALTER TABLE sets ADD COLUMN group_index INTEGER');
+          }
+        }
+
+        if (oldVersion < 4) {
+          final columns = await db.rawQuery('PRAGMA table_info(sets)');
+          final hasParentSetId = columns.any(
+            (col) => col['name'] == 'parent_set_id',
+          );
+          if (!hasParentSetId) {
+            await db.execute(
+              'ALTER TABLE sets ADD COLUMN parent_set_id INTEGER',
+            );
           }
         }
       },
@@ -131,11 +143,18 @@ class DBHelper {
     });
   }
 
-  Future<void> _ensureGroupIndexColumn(Database database) async {
+  Future<void> _ensureSetColumns(Database database) async {
     final columns = await database.rawQuery('PRAGMA table_info(sets)');
     final hasGroupIndex = columns.any((col) => col['name'] == 'group_index');
     if (!hasGroupIndex) {
       await database.execute('ALTER TABLE sets ADD COLUMN group_index INTEGER');
+    }
+
+    final hasParentSetId = columns.any((col) => col['name'] == 'parent_set_id');
+    if (!hasParentSetId) {
+      await database.execute(
+        'ALTER TABLE sets ADD COLUMN parent_set_id INTEGER',
+      );
     }
   }
 
@@ -145,15 +164,17 @@ class DBHelper {
     int reps,
     String unit, {
     int? groupIndex,
+    int? parentSetId,
   }) async {
     final database = await db;
-    await _ensureGroupIndexColumn(database);
+    await _ensureSetColumns(database);
     return await database.insert('sets', {
       'session_id': sessionId,
       'weight': weight,
       'reps': reps,
       'unit': unit,
       'group_index': groupIndex,
+      'parent_set_id': parentSetId,
     });
   }
 
@@ -182,8 +203,26 @@ class DBHelper {
       'sets',
       where: 'session_id = ?',
       whereArgs: [sessionId],
+      orderBy: 'id ASC',
     );
     return rows;
+  }
+
+  Future<List<Map<String, dynamic>>> getAllSessions() async {
+    final database = await db;
+    final sessions = await database.query('sessions', orderBy: 'timestamp ASC');
+    return sessions.map((s) {
+      final copy = Map<String, dynamic>.from(s);
+      copy['timestamp'] = DateTime.fromMillisecondsSinceEpoch(
+        copy['timestamp'] as int,
+      );
+      return copy;
+    }).toList();
+  }
+
+  Future<List<Map<String, dynamic>>> getAllSets() async {
+    final database = await db;
+    return await database.query('sets', orderBy: 'id ASC');
   }
 
   Future<List<DateTime>> getLoggedDates() async {

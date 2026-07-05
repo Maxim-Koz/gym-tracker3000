@@ -73,7 +73,7 @@ class _ExerciseHistoryScreenState extends State<ExerciseHistoryScreen> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            '${sets.length} set${sets.length == 1 ? '' : 's'}',
+                            '${sets.where((s) => s['parent_set_id'] == null).length} set${sets.where((s) => s['parent_set_id'] == null).length == 1 ? '' : 's'}',
                           ),
                           const Divider(),
                           if (sets.isEmpty)
@@ -102,14 +102,34 @@ class _ExerciseHistoryScreenState extends State<ExerciseHistoryScreen> {
   // group_index (i.e. it was recorded as part of a drop set), the sets are
   // clustered under a "Drop set group N" header instead of shown flat.
   List<Widget> _buildSetRows(List<Map<String, dynamic>> sets) {
-    final hasGroups = sets.any((s) => s['group_index'] != null);
+    final childrenByParent = <int, List<Map<String, dynamic>>>{};
+    final parentRows = <Map<String, dynamic>>[];
+
+    for (final setRow in sets) {
+      final parentId = setRow['parent_set_id'] as int?;
+      if (parentId != null) {
+        childrenByParent.putIfAbsent(parentId, () => []).add(setRow);
+      } else {
+        parentRows.add(setRow);
+      }
+    }
+
+    final hasGroups = parentRows.any((s) => s['group_index'] != null);
+
+    Widget buildRowWithChildren(Map<String, dynamic> row) {
+      final id = row['id'] as int?;
+      final children = id == null
+          ? <Map<String, dynamic>>[]
+          : childrenByParent[id] ?? [];
+      return _buildSingleSetRow(row, children: children);
+    }
 
     if (!hasGroups) {
-      return sets.map((setRow) => _buildSingleSetRow(setRow)).toList();
+      return parentRows.map((setRow) => buildRowWithChildren(setRow)).toList();
     }
 
     final grouped = <int, List<Map<String, dynamic>>>{};
-    for (final setRow in sets) {
+    for (final setRow in parentRows) {
       final groupIndex = setRow['group_index'] as int? ?? 0;
       grouped.putIfAbsent(groupIndex, () => []).add(setRow);
     }
@@ -130,7 +150,7 @@ class _ExerciseHistoryScreenState extends State<ExerciseHistoryScreen> {
         grouped[key]!.map(
           (setRow) => Padding(
             padding: const EdgeInsets.only(left: 8.0),
-            child: _buildSingleSetRow(setRow),
+            child: buildRowWithChildren(setRow),
           ),
         ),
       );
@@ -138,9 +158,11 @@ class _ExerciseHistoryScreenState extends State<ExerciseHistoryScreen> {
     return widgets;
   }
 
-  Widget _buildSingleSetRow(Map<String, dynamic> setRow) {
+  Widget _buildSingleSetRow(
+    Map<String, dynamic> setRow, {
+    List<Map<String, dynamic>> children = const <Map<String, dynamic>>[],
+  }) {
     final weight = setRow['weight'];
-    final reps = setRow['reps'];
     final unit = setRow['unit'];
     String weightText;
     if (weight == null) {
@@ -150,19 +172,39 @@ class _ExerciseHistoryScreenState extends State<ExerciseHistoryScreen> {
     } else {
       weightText = weight.toString();
     }
-    final repsText = reps == null ? '-' : reps.toString();
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4.0),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(
-            '$weightText ${unit ?? ''}',
+            '$weightText ${unit ?? ''}'.trim(),
             style: const TextStyle(fontWeight: FontWeight.w500),
           ),
-          Text('$repsText reps'),
+          Text(_formatRepsDisplay(setRow, children)),
         ],
       ),
     );
+  }
+
+  String _formatRepsDisplay(
+    Map<String, dynamic> setRow,
+    List<Map<String, dynamic>> children,
+  ) {
+    final values = <String>[];
+    final mainReps = setRow['reps'];
+    if (mainReps != null) {
+      values.add(mainReps.toString());
+    }
+    for (final child in children) {
+      final childReps = child['reps'];
+      if (childReps != null) {
+        values.add(childReps.toString());
+      }
+    }
+    if (values.isEmpty) {
+      return '-';
+    }
+    return '${values.join(', ')} reps';
   }
 }

@@ -55,11 +55,27 @@ List<Map<String, dynamic>> collectValidSetEntries({
   for (final row in normalRows) {
     final weightController = row['weight'] as TextEditingController?;
     final repsController = row['reps'] as TextEditingController?;
+    final restPauseControllers =
+        row['restPauses'] as List<TextEditingController>?;
     final weight = double.tryParse(weightController?.text.trim() ?? '') ?? 0.0;
     final reps = int.tryParse(repsController?.text.trim() ?? '') ?? 0;
     final unit = row['unit'] as String? ?? 'kg';
     if (weight > 0 && reps > 0) {
-      entries.add({'weight': weight, 'reps': reps, 'unit': unit});
+      final restPauses = <int>[];
+      if (restPauseControllers != null) {
+        for (final pauseController in restPauseControllers) {
+          final pauseReps = int.tryParse(pauseController.text.trim()) ?? 0;
+          if (pauseReps > 0) {
+            restPauses.add(pauseReps);
+          }
+        }
+      }
+      entries.add({
+        'weight': weight,
+        'reps': reps,
+        'unit': unit,
+        'restPauses': restPauses,
+      });
     }
   }
   return entries;

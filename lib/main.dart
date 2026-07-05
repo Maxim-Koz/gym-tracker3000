@@ -12,6 +12,7 @@ import 'package:gym_tracker/screens/settings_screen.dart';
 import 'package:gym_tracker/screens/history_screen.dart';
 import 'package:gym_tracker/screens/exercise_history_screen.dart';
 import 'package:gym_tracker/screens/year_history_screen.dart';
+import 'package:gym_tracker/screens/workout_stats_screen.dart';
 import 'package:gym_tracker/providers/theme_provider.dart';
 
 final lightTheme = ThemeData(
@@ -75,6 +76,7 @@ class MyApp extends StatelessWidget {
         '/history': (context) => const HistoryScreen(),
         '/history/exercise': (context) => const ExerciseHistoryScreen(),
         '/history/year': (context) => const YearHistoryScreen(),
+        '/stats': (context) => const WorkoutStatsScreen(),
         '/settings': (context) => const SettingsScreen(),
       },
     );
