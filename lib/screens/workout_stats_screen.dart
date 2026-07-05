@@ -2,6 +2,26 @@ import 'package:flutter/material.dart';
 import 'package:gym_tracker/services/db_helper.dart';
 import 'package:gym_tracker/services/stats_service.dart';
 
+class MaxWeightEntry {
+  final int exerciseId;
+  final String name;
+  final String type;
+  final double weight;
+  final String unit;
+  final int reps;
+  final DateTime date;
+
+  const MaxWeightEntry({
+    required this.exerciseId,
+    required this.name,
+    required this.type,
+    required this.weight,
+    required this.unit,
+    required this.reps,
+    required this.date,
+  });
+}
+
 class WorkoutStatsScreen extends StatefulWidget {
   const WorkoutStatsScreen({super.key});
 
@@ -13,7 +33,7 @@ class _WorkoutStatsScreenState extends State<WorkoutStatsScreen> {
   bool _isLoading = true;
   int _loggedDays = 0;
   double _yearPercentage = 0.0;
-  List<WorkoutLogEntry> _logEntries = const <WorkoutLogEntry>[];
+  List<MaxWeightEntry> _maxWeights = const <MaxWeightEntry>[];
 
   @override
   void initState() {
@@ -35,12 +55,103 @@ class _WorkoutStatsScreenState extends State<WorkoutStatsScreen> {
       now: DateTime.now(),
     );
 
+    final maxWeights = _calculateMaxWeights(
+      exercises: exercises,
+      sessions: sessions,
+      sets: sets,
+    );
+
     setState(() {
       _loggedDays = stats.loggedDays;
       _yearPercentage = stats.yearPercentage;
-      _logEntries = stats.logEntries;
+      _maxWeights = maxWeights;
       _isLoading = false;
     });
+  }
+
+  // Converts a weight to kg so entries recorded in different units can be
+  // compared on equal footing (e.g. 200 lb vs 100 kg).
+  static const double _kgPerLb = 0.45359237;
+
+  double _toKg(double weight, String unit) {
+    switch (unit.toLowerCase()) {
+      case 'lb':
+        return weight * _kgPerLb;
+      case 'kg':
+      default:
+        return weight;
+    }
+  }
+
+  // Session timestamps are normally already converted to DateTime by
+  // DBHelper, but this defends against a raw int (millisecondsSinceEpoch)
+  // or a missing/null value ever reaching here, instead of throwing.
+  DateTime _sessionDate(Map<String, dynamic> session) {
+    final raw = session['timestamp'];
+    if (raw is DateTime) return raw;
+    if (raw is int) return DateTime.fromMillisecondsSinceEpoch(raw);
+    return DateTime.now();
+  }
+
+  // For each exercise, finds the session in which its heaviest weight was
+  // logged, and returns that weight along with the reps done and the date
+  // it happened on.
+  List<MaxWeightEntry> _calculateMaxWeights({
+    required List<Map<String, dynamic>> exercises,
+    required List<Map<String, dynamic>> sessions,
+    required List<Map<String, dynamic>> sets,
+  }) {
+    final sessionById = {
+      for (final session in sessions) session['id'] as int: session,
+    };
+
+    final bestByExercise = <int, Map<String, dynamic>>{};
+    for (final set in sets) {
+      final rawWeight = set['weight'];
+      if (rawWeight == null) continue;
+
+      final session = sessionById[set['session_id'] as int];
+      if (session == null) continue;
+      final exerciseId = session['exercise_id'] as int;
+
+      final weight = (rawWeight as num).toDouble();
+      final unit = set['unit'] as String? ?? 'kg';
+      final weightInKg = _toKg(weight, unit);
+
+      final current = bestByExercise[exerciseId];
+      if (current == null || weightInKg > (current['weightInKg'] as double)) {
+        bestByExercise[exerciseId] = {
+          'weight': weight,
+          'unit': unit,
+          'weightInKg': weightInKg,
+          'reps': set['reps'] as int? ?? 0,
+          'date': _sessionDate(session),
+        };
+      }
+    }
+
+    final exerciseById = {
+      for (final exercise in exercises) exercise['id'] as int: exercise,
+    };
+
+    final entries = bestByExercise.entries.map((entry) {
+      final exercise = exerciseById[entry.key];
+      final best = entry.value;
+      return MaxWeightEntry(
+        exerciseId: entry.key,
+        name: exercise?['name'] as String? ?? 'Unknown exercise',
+        type: exercise?['type'] as String? ?? '',
+        weight: best['weight'] as double,
+        unit: best['unit'] as String,
+        reps: best['reps'] as int,
+        date: best['date'] as DateTime,
+      );
+    }).toList();
+
+    entries.sort(
+      (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+    );
+    return entries;
   }
 
   @override
@@ -83,28 +194,36 @@ class _WorkoutStatsScreenState extends State<WorkoutStatsScreen> {
                   ),
                   const SizedBox(height: 20),
                   const Text(
-                    'Full workout log',
+                    'Max weight',
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 8),
-                  if (_logEntries.isEmpty)
-                    const Text('No workout entries yet.')
+                  if (_maxWeights.isEmpty)
+                    const Text('No exercises with recorded weights yet.')
                   else
-                    ListView.separated(
+                    ListView.builder(
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
-                      itemCount: _logEntries.length,
-                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      itemCount: _maxWeights.length,
                       itemBuilder: (context, index) {
-                        final entry = _logEntries[index];
-                        return ListTile(
-                          title: Text(entry.exerciseName),
-                          subtitle: Text(
-                            '${_formatDate(entry.date)} • ${entry.reps} reps',
+                        final entry = _maxWeights[index];
+                        return Card(
+                          margin: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
                           ),
-                          trailing: Text(
-                            '${_formatWeight(entry.weight)} ${entry.unit}'.trim(),
-                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          child: ListTile(
+                            title: Text(entry.name),
+                            subtitle: Text(
+                              '${_formatDate(entry.date)} • ${entry.reps} reps',
+                            ),
+                            trailing: Text(
+                              '${_formatWeight(entry.weight)} ${entry.unit}'
+                                  .trim(),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
                           ),
                         );
                       },

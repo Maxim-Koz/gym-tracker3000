@@ -78,7 +78,14 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       appBar: AppBar(
         automaticallyImplyLeading: false,
-        title: Text('Hello, $_username'),
+        toolbarHeight: 100,
+        title: Padding(
+          padding: const EdgeInsets.only(top: 24),
+          child: Text(
+            'Hello, $_username',
+            style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+          ),
+        ),
         centerTitle: true,
       ),
       body: Padding(
@@ -125,11 +132,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   ],
                 ),
               ),
-            ),
-            const SizedBox(height: 24),
-            const Text(
-              'Tap the tab bar below to add or configure exercises.',
-              style: TextStyle(color: Colors.white70),
             ),
           ],
         ),

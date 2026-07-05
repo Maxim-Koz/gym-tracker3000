@@ -47,7 +47,8 @@ WorkoutStats calculateWorkoutStats({
       : (uniqueLoggedDays / totalDaysInYear) * 100;
 
   final exerciseById = {
-    for (final exercise in exercises) (exercise['id'] as int): exercise['name'] as String,
+    for (final exercise in exercises)
+      (exercise['id'] as int): exercise['name'] as String,
   };
 
   final logEntries = <WorkoutLogEntry>[];
@@ -66,7 +67,8 @@ WorkoutStats calculateWorkoutStats({
         continue;
       }
 
-      final exerciseName = exerciseById[(session['exercise_id'] as int)] ?? 'Unknown exercise';
+      final exerciseName =
+          exerciseById[(session['exercise_id'] as int)] ?? 'Unknown exercise';
       logEntries.add(
         WorkoutLogEntry(
           exerciseName: exerciseName,

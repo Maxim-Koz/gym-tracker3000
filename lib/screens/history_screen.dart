@@ -41,7 +41,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   ),
                   child: ListTile(
                     title: Text(exercise['name'] ?? ''),
-                    subtitle: Text(exercise['type'] ?? ''),
                     trailing: const Icon(Icons.arrow_forward_ios, size: 16),
                     onTap: () => Navigator.of(
                       context,
