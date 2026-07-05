@@ -73,6 +73,18 @@ class _NewExerciseScreenState extends State<NewExerciseScreen> {
       return;
     }
 
+    final entryError = findSetEntryError(
+      type: _type,
+      normalRows: _normalRows,
+      dropGroups: _dropGroups,
+    );
+    if (entryError != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(entryError)));
+      return;
+    }
+
     final validSets = collectValidSetEntries(
       type: _type,
       normalRows: _normalRows,

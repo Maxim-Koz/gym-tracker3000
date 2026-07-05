@@ -111,6 +111,18 @@ class _LogSessionScreenState extends State<LogSessionScreen> {
       return;
     }
 
+    final entryError = findSetEntryError(
+      type: _selectedType,
+      normalRows: _normalRows,
+      dropGroups: _dropGroups,
+    );
+    if (entryError != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(entryError)));
+      return;
+    }
+
     final hasSets = hasAnyValidSetEntries(
       type: _selectedType,
       normalRows: _normalRows,

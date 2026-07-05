@@ -167,6 +167,18 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
       return;
     }
 
+    final entryError = findSetEntryError(
+      type: _selectedType,
+      normalRows: _normalRows,
+      dropGroups: _dropGroups,
+    );
+    if (entryError != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(entryError)));
+      return;
+    }
+
     if (!_hasValidEntries()) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter at least one set.')),

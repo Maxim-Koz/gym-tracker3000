@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:gym_tracker/services/db_helper.dart';
 import 'package:gym_tracker/services/stats_service.dart';
 
@@ -34,6 +35,7 @@ class _WorkoutStatsScreenState extends State<WorkoutStatsScreen> {
   int _loggedDays = 0;
   double _yearPercentage = 0.0;
   List<MaxWeightEntry> _maxWeights = const <MaxWeightEntry>[];
+  DateTime? _memberSince;
 
   @override
   void initState() {
@@ -61,10 +63,14 @@ class _WorkoutStatsScreenState extends State<WorkoutStatsScreen> {
       sets: sets,
     );
 
+    final createdAt = Supabase.instance.client.auth.currentUser?.createdAt;
+    final memberSince = createdAt != null ? DateTime.tryParse(createdAt) : null;
+
     setState(() {
       _loggedDays = stats.loggedDays;
       _yearPercentage = stats.yearPercentage;
       _maxWeights = maxWeights;
+      _memberSince = memberSince;
       _isLoading = false;
     });
   }
@@ -188,6 +194,13 @@ class _WorkoutStatsScreenState extends State<WorkoutStatsScreen> {
                             label: 'Year coverage',
                             value: '${_yearPercentage.toStringAsFixed(1)}%',
                           ),
+                          if (_memberSince != null) ...[
+                            const SizedBox(height: 8),
+                            _buildStatRow(
+                              label: 'Member since',
+                              value: _formatDate(_memberSince!),
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -221,6 +234,7 @@ class _WorkoutStatsScreenState extends State<WorkoutStatsScreen> {
                               '${_formatWeight(entry.weight)} ${entry.unit}'
                                   .trim(),
                               style: const TextStyle(
+                                fontSize: 20,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
