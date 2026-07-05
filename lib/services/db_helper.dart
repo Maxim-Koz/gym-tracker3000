@@ -21,7 +21,7 @@ class DBHelper {
     final path = join(databasesPath, 'gym_tracker.db');
     return await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: (db, version) async {
         await db.execute('''
         CREATE TABLE exercises (
@@ -48,6 +48,7 @@ class DBHelper {
           weight REAL,
           reps INTEGER,
           unit TEXT,
+          group_index INTEGER,
           FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
         )
       ''');
@@ -77,6 +78,18 @@ class DBHelper {
           await db.execute(
             'CREATE UNIQUE INDEX IF NOT EXISTS idx_exercises_name ON exercises(name)',
           );
+        }
+
+        if (oldVersion < 3) {
+          // Tags each set with which drop-set group it belonged to (null
+          // for normal sets, or for sets recorded before this column existed).
+          final columns = await db.rawQuery('PRAGMA table_info(sets)');
+          final hasGroupIndex = columns.any(
+            (col) => col['name'] == 'group_index',
+          );
+          if (!hasGroupIndex) {
+            await db.execute('ALTER TABLE sets ADD COLUMN group_index INTEGER');
+          }
         }
       },
     );
@@ -118,18 +131,29 @@ class DBHelper {
     });
   }
 
+  Future<void> _ensureGroupIndexColumn(Database database) async {
+    final columns = await database.rawQuery('PRAGMA table_info(sets)');
+    final hasGroupIndex = columns.any((col) => col['name'] == 'group_index');
+    if (!hasGroupIndex) {
+      await database.execute('ALTER TABLE sets ADD COLUMN group_index INTEGER');
+    }
+  }
+
   Future<int> insertSet(
     int sessionId,
     double weight,
     int reps,
-    String unit,
-  ) async {
+    String unit, {
+    int? groupIndex,
+  }) async {
     final database = await db;
+    await _ensureGroupIndexColumn(database);
     return await database.insert('sets', {
       'session_id': sessionId,
       'weight': weight,
       'reps': reps,
       'unit': unit,
+      'group_index': groupIndex,
     });
   }
 
@@ -160,6 +184,23 @@ class DBHelper {
       whereArgs: [sessionId],
     );
     return rows;
+  }
+
+  Future<List<DateTime>> getLoggedDates() async {
+    final database = await db;
+    final sessions = await database.query(
+      'sessions',
+      orderBy: 'timestamp DESC',
+    );
+
+    return sessions
+        .map((session) {
+          final timestamp = session['timestamp'] as int;
+          final date = DateTime.fromMillisecondsSinceEpoch(timestamp);
+          return DateTime(date.year, date.month, date.day);
+        })
+        .toSet()
+        .toList();
   }
 
   Future<List<Map<String, dynamic>>> getExercises() async {

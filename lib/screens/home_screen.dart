@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:gym_tracker/services/db_helper.dart';
 import 'package:gym_tracker/widgets/bottom_nav_bar.dart';
+import 'package:gym_tracker/widgets/workout_calendar.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -12,11 +14,13 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
   String _username = 'there';
+  Set<DateTime> _loggedDates = <DateTime>{};
 
   @override
   void initState() {
     super.initState();
     _loadUsername();
+    _loadLoggedDates();
   }
 
   Future<void> _loadUsername() async {
@@ -43,6 +47,12 @@ class _HomeScreenState extends State<HomeScreen> {
         _username = user.email!.split('@').first;
       });
     }
+  }
+
+  Future<void> _loadLoggedDates() async {
+    final dates = await DBHelper().getLoggedDates();
+    if (!mounted) return;
+    setState(() => _loggedDates = dates.toSet());
   }
 
   void _onNavTap(int index) {
@@ -76,9 +86,12 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text(
-              'History',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            WorkoutCalendar(month: DateTime.now(), loggedDates: _loggedDates),
+            const SizedBox(height: 12),
+            ElevatedButton.icon(
+              onPressed: () => Navigator.of(context).pushNamed('/history/year'),
+              icon: const Icon(Icons.calendar_month_outlined),
+              label: const Text('View more logged days'),
             ),
             const SizedBox(height: 12),
             GestureDetector(

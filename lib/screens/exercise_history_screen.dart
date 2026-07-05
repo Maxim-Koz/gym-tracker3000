@@ -82,40 +82,7 @@ class _ExerciseHistoryScreenState extends State<ExerciseHistoryScreen> {
                               child: Text('No sets recorded for this session.'),
                             )
                           else
-                            ...sets.map((setRow) {
-                              final weight = setRow['weight'];
-                              final reps = setRow['reps'];
-                              final unit = setRow['unit'];
-                              String weightText;
-                              if (weight == null) {
-                                weightText = '-';
-                              } else if (weight is double) {
-                                weightText = weight.toStringAsFixed(1);
-                              } else {
-                                weightText = weight.toString();
-                              }
-                              final repsText = reps == null
-                                  ? '-'
-                                  : reps.toString();
-                              return Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 4.0,
-                                ),
-                                child: Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Text(
-                                      '$weightText ${unit ?? ''}',
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                    Text('$repsText reps'),
-                                  ],
-                                ),
-                              );
-                            }),
+                            ..._buildSetRows(sets),
                         ],
                       ),
                     ),
@@ -129,5 +96,73 @@ class _ExerciseHistoryScreenState extends State<ExerciseHistoryScreen> {
   String _formatDate(DateTime date) {
     final local = date.toLocal();
     return '${local.day.toString().padLeft(2, '0')}/${local.month.toString().padLeft(2, '0')}/${local.year}';
+  }
+
+  // Builds the widgets for a session's sets. If any set carries a
+  // group_index (i.e. it was recorded as part of a drop set), the sets are
+  // clustered under a "Drop set group N" header instead of shown flat.
+  List<Widget> _buildSetRows(List<Map<String, dynamic>> sets) {
+    final hasGroups = sets.any((s) => s['group_index'] != null);
+
+    if (!hasGroups) {
+      return sets.map((setRow) => _buildSingleSetRow(setRow)).toList();
+    }
+
+    final grouped = <int, List<Map<String, dynamic>>>{};
+    for (final setRow in sets) {
+      final groupIndex = setRow['group_index'] as int? ?? 0;
+      grouped.putIfAbsent(groupIndex, () => []).add(setRow);
+    }
+    final sortedKeys = grouped.keys.toList()..sort();
+
+    final widgets = <Widget>[];
+    for (final key in sortedKeys) {
+      widgets.add(
+        Padding(
+          padding: const EdgeInsets.only(top: 6.0, bottom: 2.0),
+          child: Text(
+            'Drop set group ${key + 1}',
+            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+          ),
+        ),
+      );
+      widgets.addAll(
+        grouped[key]!.map(
+          (setRow) => Padding(
+            padding: const EdgeInsets.only(left: 8.0),
+            child: _buildSingleSetRow(setRow),
+          ),
+        ),
+      );
+    }
+    return widgets;
+  }
+
+  Widget _buildSingleSetRow(Map<String, dynamic> setRow) {
+    final weight = setRow['weight'];
+    final reps = setRow['reps'];
+    final unit = setRow['unit'];
+    String weightText;
+    if (weight == null) {
+      weightText = '-';
+    } else if (weight is double) {
+      weightText = weight.toStringAsFixed(1);
+    } else {
+      weightText = weight.toString();
+    }
+    final repsText = reps == null ? '-' : reps.toString();
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            '$weightText ${unit ?? ''}',
+            style: const TextStyle(fontWeight: FontWeight.w500),
+          ),
+          Text('$repsText reps'),
+        ],
+      ),
+    );
   }
 }

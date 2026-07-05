@@ -1,28 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:gym_tracker/services/db_helper.dart';
-
-class SetRow {
-  final TextEditingController weightController = TextEditingController();
-  final TextEditingController repsController = TextEditingController();
-  String unit = 'kg';
-
-  void dispose() {
-    weightController.dispose();
-    repsController.dispose();
-  }
-
-  Map<String, dynamic> toMap() {
-    return {
-      'weight': double.tryParse(weightController.text.trim()) ?? 0.0,
-      'reps': int.tryParse(repsController.text.trim()) ?? 0,
-      'unit': unit,
-    };
-  }
-}
-
-class DropGroup {
-  final List<SetRow> rows = [SetRow()];
-}
+import 'package:gym_tracker/services/set_entry_utils.dart';
 
 class RecordExerciseScreen extends StatefulWidget {
   const RecordExerciseScreen({super.key});
@@ -114,7 +92,7 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
 
   void _addDropRow(int groupIndex) {
     setState(() {
-      _dropGroups[groupIndex].rows.add(SetRow());
+      _dropGroups[groupIndex].rows.add(SetEntryRow());
     });
   }
 
@@ -125,23 +103,11 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
   }
 
   bool _hasValidEntries() {
-    if (_selectedType == 'drop') {
-      return _dropGroups.any((group) {
-        return group.rows.any((row) {
-          final values = row.toMap();
-          return (values['weight'] as double) > 0 &&
-              (values['reps'] as int) > 0;
-        });
-      });
-    }
-
-    return _normalRows.any((row) {
-      final weightController = row['weight'] as TextEditingController?;
-      final repsController = row['reps'] as TextEditingController?;
-      final w = double.tryParse(weightController?.text.trim() ?? '') ?? 0.0;
-      final r = int.tryParse(repsController?.text.trim() ?? '') ?? 0;
-      return w > 0 && r > 0;
-    });
+    return hasAnyValidSetEntries(
+      type: _selectedType,
+      normalRows: _normalRows,
+      dropGroups: _dropGroups,
+    );
   }
 
   Future<void> _loadSessions() async {
@@ -181,30 +147,29 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
       DateTime.now(),
     );
 
-    if (_selectedType == 'drop') {
-      for (final group in _dropGroups) {
-        for (final row in group.rows) {
-          final values = row.toMap();
-          if ((values['weight'] as double) > 0 && (values['reps'] as int) > 0) {
-            await DBHelper().insertSet(
-              sessionId,
-              values['weight'] as double,
-              values['reps'] as int,
-              values['unit'] as String,
-            );
-          }
-        }
-      }
-    } else {
-      for (final row in _normalRows) {
-        final weightController = row['weight'] as TextEditingController?;
-        final repsController = row['reps'] as TextEditingController?;
-        final w = double.tryParse(weightController?.text.trim() ?? '') ?? 0.0;
-        final r = int.tryParse(repsController?.text.trim() ?? '') ?? 0;
-        final u = row['unit'] as String? ?? 'kg';
-        if (w > 0 && r > 0) {
-          await DBHelper().insertSet(sessionId, w, r, u);
-        }
+    final setEntries = collectValidSetEntries(
+      type: _selectedType,
+      normalRows: _normalRows,
+      dropGroups: _dropGroups,
+    );
+
+    for (final entry in setEntries) {
+      final groupIndex = entry['groupIndex'] as int?;
+      if (groupIndex != null) {
+        await DBHelper().insertSet(
+          sessionId,
+          entry['weight'] as double,
+          entry['reps'] as int,
+          entry['unit'] as String,
+          groupIndex: groupIndex,
+        );
+      } else {
+        await DBHelper().insertSet(
+          sessionId,
+          entry['weight'] as double,
+          entry['reps'] as int,
+          entry['unit'] as String,
+        );
       }
     }
 
@@ -268,21 +233,7 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
                                   ),
                                 ),
                                 const SizedBox(height: 8),
-                                ...sets.map((setRow) {
-                                  final weight = setRow['weight'];
-                                  final reps = setRow['reps'];
-                                  final unit = setRow['unit'];
-                                  return Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Text(
-                                        '${weight ?? '-'} ${unit ?? ''}'.trim(),
-                                      ),
-                                      Text('$reps reps'),
-                                    ],
-                                  );
-                                }),
+                                ..._buildSetRows(sets),
                               ],
                             ),
                           ),
@@ -508,5 +459,61 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
   String _formatDate(DateTime date) {
     final local = date.toLocal();
     return '${local.day.toString().padLeft(2, '0')}/${local.month.toString().padLeft(2, '0')}/${local.year}';
+  }
+
+  // Builds the widgets for a session's sets. If any set carries a
+  // group_index (i.e. it was recorded as part of a drop set), the sets are
+  // clustered under a "Drop set group N" header instead of shown flat.
+  List<Widget> _buildSetRows(List<Map<String, dynamic>> sets) {
+    final hasGroups = sets.any((s) => s['group_index'] != null);
+
+    if (!hasGroups) {
+      return sets.map((setRow) => _buildSingleSetRow(setRow)).toList();
+    }
+
+    final grouped = <int, List<Map<String, dynamic>>>{};
+    for (final setRow in sets) {
+      final groupIndex = setRow['group_index'] as int? ?? 0;
+      grouped.putIfAbsent(groupIndex, () => []).add(setRow);
+    }
+    final sortedKeys = grouped.keys.toList()..sort();
+
+    final widgets = <Widget>[];
+    for (final key in sortedKeys) {
+      widgets.add(
+        Padding(
+          padding: const EdgeInsets.only(top: 6.0, bottom: 2.0),
+          child: Text(
+            'Drop set group ${key + 1}',
+            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+          ),
+        ),
+      );
+      widgets.addAll(
+        grouped[key]!.map(
+          (setRow) => Padding(
+            padding: const EdgeInsets.only(left: 8.0),
+            child: _buildSingleSetRow(setRow),
+          ),
+        ),
+      );
+    }
+    return widgets;
+  }
+
+  Widget _buildSingleSetRow(Map<String, dynamic> setRow) {
+    final weight = setRow['weight'];
+    final reps = setRow['reps'];
+    final unit = setRow['unit'];
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text('${weight ?? '-'} ${unit ?? ''}'.trim()),
+          Text('$reps reps'),
+        ],
+      ),
+    );
   }
 }

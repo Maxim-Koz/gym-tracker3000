@@ -1,51 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:gym_tracker/services/db_helper.dart';
-
-class SetRow {
-  final TextEditingController weightController = TextEditingController();
-  final TextEditingController repsController = TextEditingController();
-  String unit = 'kg';
-
-  void dispose() {
-    weightController.dispose();
-    repsController.dispose();
-  }
-
-  Map<String, dynamic> toMap() {
-    return {
-      'weight': double.tryParse(weightController.text.trim()) ?? 0.0,
-      'reps': int.tryParse(repsController.text.trim()) ?? 0,
-      'unit': unit,
-    };
-  }
-}
-
-class DropGroup {
-  final List<SetRow> rows = [SetRow()];
-}
-
-bool hasAnyValidSetEntries({
-  required String type,
-  required List<Map<String, dynamic>> normalRows,
-  required List<DropGroup> dropGroups,
-}) {
-  if (type == 'drop') {
-    return dropGroups.any((group) {
-      return group.rows.any((row) {
-        final values = row.toMap();
-        return (values['weight'] as double) > 0 && (values['reps'] as int) > 0;
-      });
-    });
-  }
-
-  return normalRows.any((row) {
-    final weightController = row['weight'] as TextEditingController?;
-    final repsController = row['reps'] as TextEditingController?;
-    final w = double.tryParse(weightController?.text.trim() ?? '') ?? 0.0;
-    final r = int.tryParse(repsController?.text.trim() ?? '') ?? 0;
-    return w > 0 && r > 0;
-  });
-}
+import 'package:gym_tracker/services/set_entry_utils.dart';
 
 class LogSessionScreen extends StatefulWidget {
   const LogSessionScreen({super.key});
@@ -137,7 +92,7 @@ class _LogSessionScreenState extends State<LogSessionScreen> {
 
   void _addDropRow(int groupIndex) {
     setState(() {
-      _dropGroups[groupIndex].rows.add(SetRow());
+      _dropGroups[groupIndex].rows.add(SetEntryRow());
     });
   }
 
@@ -173,30 +128,29 @@ class _LogSessionScreenState extends State<LogSessionScreen> {
       DateTime.now(),
     );
 
-    if (_selectedType == 'drop') {
-      for (final group in _dropGroups) {
-        for (final row in group.rows) {
-          final values = row.toMap();
-          if ((values['weight'] as double) > 0 && (values['reps'] as int) > 0) {
-            await DBHelper().insertSet(
-              sessionId,
-              values['weight'] as double,
-              values['reps'] as int,
-              values['unit'] as String,
-            );
-          }
-        }
-      }
-    } else {
-      for (final row in _normalRows) {
-        final weightController = row['weight'] as TextEditingController?;
-        final repsController = row['reps'] as TextEditingController?;
-        final w = double.tryParse(weightController?.text.trim() ?? '') ?? 0.0;
-        final r = int.tryParse(repsController?.text.trim() ?? '') ?? 0;
-        final u = row['unit'] as String? ?? 'kg';
-        if (w > 0 && r > 0) {
-          await DBHelper().insertSet(sessionId, w, r, u);
-        }
+    final setEntries = collectValidSetEntries(
+      type: _selectedType,
+      normalRows: _normalRows,
+      dropGroups: _dropGroups,
+    );
+
+    for (final entry in setEntries) {
+      final groupIndex = entry['groupIndex'] as int?;
+      if (groupIndex != null) {
+        await DBHelper().insertSet(
+          sessionId,
+          entry['weight'] as double,
+          entry['reps'] as int,
+          entry['unit'] as String,
+          groupIndex: groupIndex,
+        );
+      } else {
+        await DBHelper().insertSet(
+          sessionId,
+          entry['weight'] as double,
+          entry['reps'] as int,
+          entry['unit'] as String,
+        );
       }
     }
 

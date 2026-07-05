@@ -1,28 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:gym_tracker/services/db_helper.dart';
-
-class _DropSetRow {
-  final TextEditingController weightController = TextEditingController();
-  final TextEditingController repsController = TextEditingController();
-  String unit = 'kg';
-
-  void dispose() {
-    weightController.dispose();
-    repsController.dispose();
-  }
-
-  Map<String, dynamic> toMap() {
-    return {
-      'weight': double.tryParse(weightController.text.trim()) ?? 0.0,
-      'reps': int.tryParse(repsController.text.trim()) ?? 0,
-      'unit': unit,
-    };
-  }
-}
-
-class _DropGroup {
-  final List<_DropSetRow> rows = [_DropSetRow()];
-}
+import 'package:gym_tracker/services/set_entry_utils.dart';
 
 class NewExerciseScreen extends StatefulWidget {
   const NewExerciseScreen({super.key});
@@ -36,7 +14,7 @@ class _NewExerciseScreenState extends State<NewExerciseScreen> {
   String _type = 'normal';
 
   final List<Map<String, dynamic>> _normalRows = [];
-  final List<_DropGroup> _dropGroups = [];
+  final List<DropGroup> _dropGroups = [];
 
   @override
   void dispose() {
@@ -61,13 +39,13 @@ class _NewExerciseScreenState extends State<NewExerciseScreen> {
 
   void _addDropRow(int groupIndex) {
     setState(() {
-      _dropGroups[groupIndex].rows.add(_DropSetRow());
+      _dropGroups[groupIndex].rows.add(SetEntryRow());
     });
   }
 
   void _addDropGroup() {
     setState(() {
-      _dropGroups.add(_DropGroup());
+      _dropGroups.add(DropGroup());
     });
   }
 
@@ -95,34 +73,33 @@ class _NewExerciseScreenState extends State<NewExerciseScreen> {
       return;
     }
 
-    if (_type == 'normal') {
-      final list = <Map<String, dynamic>>[];
-      for (final row in _normalRows) {
-        final w = double.tryParse(row['weight']!.text.trim()) ?? 0.0;
-        final r = int.tryParse(row['reps']!.text.trim()) ?? 0;
-        final u = row['unit'] as String? ?? 'kg';
-        if (w > 0 && r > 0) list.add({'weight': w, 'reps': r, 'unit': u});
+    final validSets = collectValidSetEntries(
+      type: _type,
+      normalRows: _normalRows,
+      dropGroups: _dropGroups,
+    );
+
+    final exerciseId = await DBHelper().insertExercise(name, _type, {});
+
+    // If the user entered any sets while creating the exercise, record them
+    // as a real session/sets entry, just like RecordExerciseScreen does.
+    if (validSets.isNotEmpty) {
+      final sessionId = await DBHelper().insertSession(
+        exerciseId,
+        DateTime.now(),
+      );
+      for (final values in validSets) {
+        await DBHelper().insertSet(
+          sessionId,
+          values['weight'] as double,
+          values['reps'] as int,
+          values['unit'] as String,
+          groupIndex: values['groupIndex'] as int?,
+        );
       }
-      final data = {'normal': list};
-      await DBHelper().insertExercise(name, 'normal', data);
-    } else {
-      final list = <Map<String, dynamic>>[];
-      for (final group in _dropGroups) {
-        final groupRows = <Map<String, dynamic>>[];
-        for (final row in group.rows) {
-          final values = row.toMap();
-          if (values['weight'] > 0 && values['reps'] > 0) {
-            groupRows.add(values);
-          }
-        }
-        if (groupRows.isNotEmpty) {
-          list.add({'rows': groupRows});
-        }
-      }
-      final data = {'drop': list};
-      await DBHelper().insertExercise(name, 'drop', data);
     }
 
+    if (!mounted) return;
     Navigator.of(context).pop(true);
   }
 
