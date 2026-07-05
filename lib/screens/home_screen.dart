@@ -7,13 +7,24 @@ import 'package:gym_tracker/widgets/workout_calendar.dart';
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
+  // Call this on logout so a different account signing in afterwards
+  // doesn't briefly show the previous user's cached username.
+  static void clearCachedUsername() {
+    _HomeScreenState._cachedUsername = null;
+  }
+
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  // Cached across HomeScreen instances (a new one is pushed each time the
+  // bottom nav bar returns here), so we don't flash the 'there' placeholder
+  // every time this screen is rebuilt while the real username loads.
+  static String? _cachedUsername;
+
   int _selectedIndex = 0;
-  String _username = 'there';
+  late String _username = _cachedUsername ?? 'there';
   Set<DateTime> _loggedDates = <DateTime>{};
 
   @override
@@ -39,12 +50,17 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     if (username != null && username.isNotEmpty) {
+      _cachedUsername = username;
+      if (!mounted) return;
       setState(() {
         _username = username!;
       });
     } else if (user.email != null) {
+      final fallback = user.email!.split('@').first;
+      _cachedUsername = fallback;
+      if (!mounted) return;
       setState(() {
-        _username = user.email!.split('@').first;
+        _username = fallback;
       });
     }
   }

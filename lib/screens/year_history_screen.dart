@@ -159,33 +159,46 @@ class _YearHistoryScreenState extends State<YearHistoryScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildWeekdayLabels(),
+        _buildWeekdayLabels(cellSize),
         const SizedBox(height: _gapAfterLabels),
         _buildContributionGrid(firstDay, lastDay, totalWeeks, cellSize),
       ],
     );
   }
 
-  Widget _buildWeekdayLabels() {
-    const weekdayLabels = ['Mon', 'Wed', 'Fri'];
+  Widget _buildWeekdayLabels(double cellSize) {
+    // Removed 'Sun', keeping Mon, Wed, and Fri matched to their Sunday-start indices
+    const weekdayLabels = {1: 'Mon', 3: 'Wed', 5: 'Fri'};
+    final safeCellSize = cellSize < 2 ? 2.0 : cellSize;
+    final margin = safeCellSize < 6 ? 0.5 : 1.2;
+
     return SizedBox(
       height: _weekdayLabelHeight,
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           const SizedBox(width: _monthLabelWidth),
           ...List.generate(7, (dayIndex) {
-            final label = dayIndex == 0 || dayIndex == 2 || dayIndex == 4
-                ? weekdayLabels[(dayIndex / 2).floor()]
-                : '';
+            final label = weekdayLabels[dayIndex] ?? '';
 
-            return Expanded(
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  label,
-                  style: const TextStyle(fontSize: 10, color: Colors.grey),
-                ),
-              ),
+            return Container(
+              width: safeCellSize,
+              padding: EdgeInsets.symmetric(horizontal: margin),
+              child: label.isNotEmpty
+                  ? Text(
+                      label,
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      softWrap: false,
+                      overflow: TextOverflow.visible,
+                      style: const TextStyle(
+                        fontSize: 8.5,
+                        color: Colors.grey,
+                        fontWeight: FontWeight.w500,
+                        height: 1.0,
+                      ),
+                    )
+                  : const SizedBox.shrink(), // Keeps an empty space for Sunday (index 0)
             );
           }),
         ],
@@ -195,7 +208,8 @@ class _YearHistoryScreenState extends State<YearHistoryScreen> {
 
   int _weeksInRange(DateTime firstDay, DateTime lastDay) {
     final daysInRange = lastDay.difference(firstDay).inDays + 1;
-    final startOffset = firstDay.weekday - 1;
+    // Sunday becomes 0 instead of Monday being 0
+    final startOffset = firstDay.weekday % 7;
     return ((startOffset + daysInRange) / 7).ceil();
   }
 
@@ -205,7 +219,7 @@ class _YearHistoryScreenState extends State<YearHistoryScreen> {
     int totalWeeks,
     double cellSize,
   ) {
-    final startOffset = firstDay.weekday - 1;
+    final startOffset = firstDay.weekday % 7;
     final safeCellSize = cellSize < 2 ? 2.0 : cellSize;
     final margin = safeCellSize < 6 ? 0.5 : 1.2;
 
@@ -311,4 +325,4 @@ class _YearHistoryScreenState extends State<YearHistoryScreen> {
     ];
     return months[month - 1];
   }
-}
+} // This closes _YearHistoryScreenState
