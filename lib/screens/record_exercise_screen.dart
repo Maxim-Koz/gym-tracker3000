@@ -472,7 +472,12 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
                                     ),
                                   ),
                                   IconButton(
-                                    icon: const Icon(Icons.add_reaction),
+                                    icon: const Text(
+                                      'RP',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
                                     tooltip: 'Add rest pause',
                                     onPressed: () => _addRestPause(index),
                                   ),
@@ -678,6 +683,7 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
     if (values.isEmpty) {
       return '-';
     }
-    return values.join(', ');
+    final isSingleRep = values.length == 1 && values.first == '1';
+    return '${values.join(', ')} ${isSingleRep ? 'rep' : 'reps'}';
   }
 }

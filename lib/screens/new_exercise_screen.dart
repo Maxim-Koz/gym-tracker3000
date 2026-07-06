@@ -22,6 +22,12 @@ class _NewExerciseScreenState extends State<NewExerciseScreen> {
     for (final row in _normalRows) {
       row['weight']!.dispose();
       row['reps']!.dispose();
+      final restPauses = row['restPauses'] as List<TextEditingController>?;
+      if (restPauses != null) {
+        for (final pauseController in restPauses) {
+          pauseController.dispose();
+        }
+      }
     }
     for (final group in _dropGroups) {
       for (final row in group.rows) {
@@ -55,7 +61,26 @@ class _NewExerciseScreenState extends State<NewExerciseScreen> {
         'weight': TextEditingController(),
         'reps': TextEditingController(),
         'unit': 'kg',
+        'restPauses': <TextEditingController>[],
       });
+    });
+  }
+
+  void _addRestPause(int rowIndex) {
+    setState(() {
+      final row = _normalRows[rowIndex];
+      final restPauses = row['restPauses'] as List<TextEditingController>?;
+      restPauses?.add(TextEditingController());
+    });
+  }
+
+  void _removeRestPause(int rowIndex, int pauseIndex) {
+    setState(() {
+      final row = _normalRows[rowIndex];
+      final restPauses = row['restPauses'] as List<TextEditingController>?;
+      if (restPauses == null || pauseIndex >= restPauses.length) return;
+      restPauses[pauseIndex].dispose();
+      restPauses.removeAt(pauseIndex);
     });
   }
 
@@ -101,13 +126,33 @@ class _NewExerciseScreenState extends State<NewExerciseScreen> {
         DateTime.now(),
       );
       for (final values in validSets) {
-        await DBHelper().insertSet(
-          sessionId,
-          values['weight'] as double,
-          values['reps'] as int,
-          values['unit'] as String,
-          groupIndex: values['groupIndex'] as int?,
-        );
+        final groupIndex = values['groupIndex'] as int?;
+        if (groupIndex != null) {
+          await DBHelper().insertSet(
+            sessionId,
+            values['weight'] as double,
+            values['reps'] as int,
+            values['unit'] as String,
+            groupIndex: groupIndex,
+          );
+        } else {
+          final setId = await DBHelper().insertSet(
+            sessionId,
+            values['weight'] as double,
+            values['reps'] as int,
+            values['unit'] as String,
+          );
+          final restPauses = values['restPauses'] as List<int>? ?? [];
+          for (final pauseReps in restPauses) {
+            await DBHelper().insertSet(
+              sessionId,
+              values['weight'] as double,
+              pauseReps,
+              values['unit'] as String,
+              parentSetId: setId,
+            );
+          }
+        }
       }
     }
 
@@ -160,44 +205,106 @@ class _NewExerciseScreenState extends State<NewExerciseScreen> {
                     final row = _normalRows[i];
                     return Padding(
                       padding: const EdgeInsets.symmetric(vertical: 6.0),
-                      child: Row(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Expanded(
-                            child: TextField(
-                              controller: row['weight'],
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                    decimal: true,
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  controller: row['weight'],
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                        decimal: true,
+                                      ),
+                                  decoration: const InputDecoration(
+                                    labelText: 'Weight',
                                   ),
-                              decoration: const InputDecoration(
-                                labelText: 'Weight',
+                                ),
                               ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          DropdownButton<String>(
-                            value: row['unit'] as String?,
-                            items: const [
-                              DropdownMenuItem(value: 'kg', child: Text('kg')),
-                              DropdownMenuItem(value: 'lb', child: Text('lb')),
+                              const SizedBox(width: 8),
+                              DropdownButton<String>(
+                                value: row['unit'] as String?,
+                                items: const [
+                                  DropdownMenuItem(
+                                    value: 'kg',
+                                    child: Text('kg'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: 'lb',
+                                    child: Text('lb'),
+                                  ),
+                                ],
+                                onChanged: (v) =>
+                                    setState(() => row['unit'] = v),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: TextField(
+                                  controller: row['reps'],
+                                  keyboardType: TextInputType.number,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Reps',
+                                  ),
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Text(
+                                  'RP',
+                                  style: TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                                tooltip: 'Add rest pause',
+                                onPressed: () => _addRestPause(i),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.delete),
+                                onPressed: () =>
+                                    setState(() => _normalRows.removeAt(i)),
+                              ),
                             ],
-                            onChanged: (v) => setState(() => row['unit'] = v),
                           ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: TextField(
-                              controller: row['reps'],
-                              keyboardType: TextInputType.number,
-                              decoration: const InputDecoration(
-                                labelText: 'Reps',
-                              ),
+                          const SizedBox(height: 4),
+                          if ((row['restPauses']
+                                      as List<TextEditingController>?)
+                                  ?.isNotEmpty ??
+                              false)
+                            ...List.generate(
+                              (row['restPauses'] as List<TextEditingController>)
+                                  .length,
+                              (pauseIndex) {
+                                final pauseController =
+                                    (row['restPauses']
+                                        as List<
+                                          TextEditingController
+                                        >)[pauseIndex];
+                                return Padding(
+                                  padding: const EdgeInsets.only(top: 6.0),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: TextField(
+                                          controller: pauseController,
+                                          keyboardType: TextInputType.number,
+                                          decoration: InputDecoration(
+                                            labelText: 'Rest pause reps',
+                                            border: OutlineInputBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(8),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(Icons.delete_outline),
+                                        tooltip: 'Remove rest pause',
+                                        onPressed: () =>
+                                            _removeRestPause(i, pauseIndex),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
                             ),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.delete),
-                            onPressed: () =>
-                                setState(() => _normalRows.removeAt(i)),
-                          ),
                         ],
                       ),
                     );

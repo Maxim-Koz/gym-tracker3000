@@ -205,6 +205,7 @@ class _ExerciseHistoryScreenState extends State<ExerciseHistoryScreen> {
     if (values.isEmpty) {
       return '-';
     }
-    return '${values.join(', ')} reps';
+    final isSingleRep = values.length == 1 && values.first == '1';
+    return '${values.join(', ')} ${isSingleRep ? 'rep' : 'reps'}';
   }
 }
