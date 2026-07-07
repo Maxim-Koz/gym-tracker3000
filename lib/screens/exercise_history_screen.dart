@@ -1,5 +1,11 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:gym_tracker/services/db_helper.dart';
+import 'package:gym_tracker/widgets/weight_progress_chart.dart';
+
+enum _ViewMode { log, graph }
+
+enum _TimeRange { twoWeeks, oneYear, all }
 
 class ExerciseHistoryScreen extends StatefulWidget {
   const ExerciseHistoryScreen({super.key});
@@ -11,6 +17,9 @@ class ExerciseHistoryScreen extends StatefulWidget {
 class _ExerciseHistoryScreenState extends State<ExerciseHistoryScreen> {
   List<Map<String, dynamic>> _sessions = [];
   Map<String, dynamic>? _exercise;
+  _ViewMode _viewMode = _ViewMode.log;
+  _TimeRange _timeRange = _TimeRange.oneYear;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -41,56 +50,182 @@ class _ExerciseHistoryScreenState extends State<ExerciseHistoryScreen> {
       appBar: AppBar(title: Text(exercise?['name'] ?? 'Exercise History')),
       body: exercise == null
           ? const Center(child: Text('No exercise selected.'))
-          : _sessions.isEmpty
-          ? const Center(child: Text('No sessions recorded for this exercise.'))
-          : ListView.builder(
-              reverse: true,
-              itemCount: _sessions.length,
-              itemBuilder: (context, index) {
-                final sessionBundle = _sessions[index];
-                final session =
-                    sessionBundle['session'] as Map<String, dynamic>;
-                final sets =
-                    sessionBundle['sets'] as List<Map<String, dynamic>>;
-                final date = session['timestamp'] as DateTime;
-                return Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  child: Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(12.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _formatDate(date),
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            '${sets.where((s) => s['parent_set_id'] == null).length} set${sets.where((s) => s['parent_set_id'] == null).length == 1 ? '' : 's'}',
-                          ),
-                          const Divider(),
-                          if (sets.isEmpty)
-                            const Padding(
-                              padding: EdgeInsets.symmetric(vertical: 8.0),
-                              child: Text('No sets recorded for this session.'),
-                            )
-                          else
-                            ..._buildSetRows(sets),
-                        ],
+          : Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+                  child: CupertinoSlidingSegmentedControl<_ViewMode>(
+                    groupValue: _viewMode,
+                    children: const {
+                      _ViewMode.log: Padding(
+                        padding: EdgeInsets.symmetric(vertical: 6),
+                        child: Text('Log'),
                       ),
+                      _ViewMode.graph: Padding(
+                        padding: EdgeInsets.symmetric(vertical: 6),
+                        child: Text('Graph'),
+                      ),
+                    },
+                    onValueChanged: (value) {
+                      if (value == null) return;
+                      setState(() => _viewMode = value);
+                    },
+                  ),
+                ),
+                if (_viewMode == _ViewMode.graph)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+                    child: CupertinoSlidingSegmentedControl<_TimeRange>(
+                      groupValue: _timeRange,
+                      children: const {
+                        _TimeRange.twoWeeks: Padding(
+                          padding: EdgeInsets.symmetric(vertical: 4),
+                          child: Text(
+                            '2 weeks',
+                            style: TextStyle(fontSize: 13),
+                          ),
+                        ),
+                        _TimeRange.oneYear: Padding(
+                          padding: EdgeInsets.symmetric(vertical: 4),
+                          child: Text('1 year', style: TextStyle(fontSize: 13)),
+                        ),
+                        _TimeRange.all: Padding(
+                          padding: EdgeInsets.symmetric(vertical: 4),
+                          child: Text(
+                            'All time',
+                            style: TextStyle(fontSize: 13),
+                          ),
+                        ),
+                      },
+                      onValueChanged: (value) {
+                        if (value == null) return;
+                        setState(() => _timeRange = value);
+                      },
                     ),
                   ),
-                );
-              },
+                Expanded(
+                  child: _viewMode == _ViewMode.graph
+                      ? _buildGraphView()
+                      : _buildLogView(),
+                ),
+              ],
             ),
     );
+  }
+
+  Widget _buildLogView() {
+    if (_sessions.isEmpty) {
+      return const Center(
+        child: Text('No sessions recorded for this exercise.'),
+      );
+    }
+    return ListView.builder(
+      reverse: true,
+      itemCount: _sessions.length,
+      itemBuilder: (context, index) {
+        final sessionBundle = _sessions[index];
+        final session = sessionBundle['session'] as Map<String, dynamic>;
+        final sets = sessionBundle['sets'] as List<Map<String, dynamic>>;
+        final date = session['timestamp'] as DateTime;
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _formatDate(date),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${sets.where((s) => s['parent_set_id'] == null).length} set${sets.where((s) => s['parent_set_id'] == null).length == 1 ? '' : 's'}',
+                  ),
+                  const Divider(),
+                  if (sets.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8.0),
+                      child: Text('No sets recorded for this session.'),
+                    )
+                  else
+                    ..._buildSetRows(sets),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildGraphView() {
+    final points = _buildWeightPoints();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 8, 16, 16),
+      child: WeightProgressChart(points: points),
+    );
+  }
+
+  // Converts a weight to kg so sets recorded in different units can be
+  // plotted on the same scale (mirrors the approach in WorkoutStatsScreen).
+  static const double _kgPerLb = 0.45359237;
+
+  double _toKg(double weight, String unit) {
+    switch (unit.toLowerCase()) {
+      case 'lb':
+        return weight * _kgPerLb;
+      case 'kg':
+      default:
+        return weight;
+    }
+  }
+
+  // Builds one point per session: the session's date paired with the
+  // heaviest weight (in kg) logged during that session, restricted to the
+  // currently selected time range and sorted oldest-to-newest.
+  List<WeightPoint> _buildWeightPoints() {
+    DateTime? cutoff;
+    final now = DateTime.now();
+    switch (_timeRange) {
+      case _TimeRange.twoWeeks:
+        cutoff = now.subtract(const Duration(days: 14));
+        break;
+      case _TimeRange.oneYear:
+        cutoff = now.subtract(const Duration(days: 365));
+        break;
+      case _TimeRange.all:
+        cutoff = null;
+        break;
+    }
+
+    final points = <WeightPoint>[];
+    for (final bundle in _sessions) {
+      final session = bundle['session'] as Map<String, dynamic>;
+      final sets = bundle['sets'] as List<Map<String, dynamic>>;
+      final date = session['timestamp'] as DateTime;
+      if (cutoff != null && date.isBefore(cutoff)) continue;
+
+      double? bestKg;
+      for (final set in sets) {
+        final rawWeight = set['weight'];
+        if (rawWeight == null) continue;
+        final weight = (rawWeight as num).toDouble();
+        final unit = set['unit'] as String? ?? 'kg';
+        final kg = _toKg(weight, unit);
+        if (bestKg == null || kg > bestKg) bestKg = kg;
+      }
+      if (bestKg != null) {
+        points.add(WeightPoint(date: date, weightKg: bestKg));
+      }
+    }
+
+    points.sort((a, b) => a.date.compareTo(b.date));
+    return points;
   }
 
   String _formatDate(DateTime date) {
