@@ -142,6 +142,16 @@ class _ExerciseHistoryScreenState extends State<ExerciseHistoryScreen> {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
+                  if ((session['note'] as String?)?.isNotEmpty ?? false) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      session['note'] as String,
+                      style: const TextStyle(
+                        fontStyle: FontStyle.italic,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 4),
                   Text(
                     '${sets.where((s) => s['parent_set_id'] == null).length} set${sets.where((s) => s['parent_set_id'] == null).length == 1 ? '' : 's'}',

@@ -15,6 +15,8 @@ class _LogSessionScreenState extends State<LogSessionScreen> {
   Map<String, dynamic>? _exercise;
   String _selectedType = 'normal';
   bool _rowsInitialized = false;
+  final TextEditingController _noteController = TextEditingController();
+  bool _showNoteField = false;
 
   @override
   void didChangeDependencies() {
@@ -27,6 +29,8 @@ class _LogSessionScreenState extends State<LogSessionScreen> {
         _exercise = nextExercise;
         _selectedType = nextType;
         _resetRowsForType(_selectedType);
+        _noteController.clear();
+        _showNoteField = false;
         _rowsInitialized = true;
       }
     }
@@ -43,6 +47,7 @@ class _LogSessionScreenState extends State<LogSessionScreen> {
         row.dispose();
       }
     }
+    _noteController.dispose();
     super.dispose();
   }
 
@@ -135,9 +140,11 @@ class _LogSessionScreenState extends State<LogSessionScreen> {
       return;
     }
 
+    final noteText = _noteController.text.trim();
     final sessionId = await DBHelper().insertSession(
       exerciseId,
       DateTime.now(),
+      note: noteText.isEmpty ? null : noteText,
     );
 
     final setEntries = collectValidSetEntries(
@@ -167,6 +174,8 @@ class _LogSessionScreenState extends State<LogSessionScreen> {
     }
 
     if (!mounted) return;
+    _noteController.clear();
+    _showNoteField = false;
     Navigator.of(context).pop(true);
     ScaffoldMessenger.of(
       context,
@@ -374,6 +383,39 @@ class _LogSessionScreenState extends State<LogSessionScreen> {
                 ),
               ],
             ),
+            const SizedBox(height: 8),
+            if (!_showNoteField)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  icon: const Icon(Icons.note_add_outlined),
+                  label: const Text('Add note'),
+                  onPressed: () => setState(() => _showNoteField = true),
+                ),
+              )
+            else
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8.0),
+                child: TextField(
+                  controller: _noteController,
+                  maxLines: 3,
+                  decoration: InputDecoration(
+                    labelText: 'Note',
+                    alignLabelWithHint: true,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.close),
+                      tooltip: 'Remove note',
+                      onPressed: () => setState(() {
+                        _noteController.clear();
+                        _showNoteField = false;
+                      }),
+                    ),
+                  ),
+                ),
+              ),
             const SizedBox(height: 8),
             ElevatedButton(onPressed: _save, child: const Text('Save session')),
           ],

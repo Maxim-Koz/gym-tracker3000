@@ -21,7 +21,7 @@ class DBHelper {
     final path = join(databasesPath, 'gym_tracker.db');
     return await openDatabase(
       path,
-      version: 4,
+      version: 5,
       onCreate: (db, version) async {
         await db.execute('''
         CREATE TABLE exercises (
@@ -37,6 +37,7 @@ class DBHelper {
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           exercise_id INTEGER NOT NULL,
           timestamp INTEGER NOT NULL,
+          note TEXT,
           FOREIGN KEY(exercise_id) REFERENCES exercises(id) ON DELETE CASCADE
         )
       ''');
@@ -103,6 +104,14 @@ class DBHelper {
             );
           }
         }
+
+        if (oldVersion < 5) {
+          final columns = await db.rawQuery('PRAGMA table_info(sessions)');
+          final hasNote = columns.any((col) => col['name'] == 'note');
+          if (!hasNote) {
+            await db.execute('ALTER TABLE sessions ADD COLUMN note TEXT');
+          }
+        }
       },
     );
   }
@@ -135,11 +144,25 @@ class DBHelper {
     return copy;
   }
 
-  Future<int> insertSession(int exerciseId, DateTime timestamp) async {
+  Future<void> _ensureSessionColumns(Database database) async {
+    final columns = await database.rawQuery('PRAGMA table_info(sessions)');
+    final hasNote = columns.any((col) => col['name'] == 'note');
+    if (!hasNote) {
+      await database.execute('ALTER TABLE sessions ADD COLUMN note TEXT');
+    }
+  }
+
+  Future<int> insertSession(
+    int exerciseId,
+    DateTime timestamp, {
+    String? note,
+  }) async {
     final database = await db;
+    await _ensureSessionColumns(database);
     return await database.insert('sessions', {
       'exercise_id': exerciseId,
       'timestamp': timestamp.millisecondsSinceEpoch,
+      'note': note,
     });
   }
 

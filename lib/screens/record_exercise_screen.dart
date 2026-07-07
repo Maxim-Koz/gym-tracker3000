@@ -15,6 +15,8 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
   final List<Map<String, dynamic>> _normalRows = [];
   final List<DropGroup> _dropGroups = [];
   String _selectedType = 'normal';
+  final TextEditingController _noteController = TextEditingController();
+  bool _showNoteField = false;
 
   @override
   void didChangeDependencies() {
@@ -27,6 +29,8 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
         _exercise = nextExercise;
         _selectedType = nextType;
         _resetRowsForType(_selectedType);
+        _noteController.clear();
+        _showNoteField = false;
       }
       _loadSessions();
     }
@@ -49,6 +53,7 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
         row.dispose();
       }
     }
+    _noteController.dispose();
     super.dispose();
   }
 
@@ -186,9 +191,11 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
       return;
     }
 
+    final noteText = _noteController.text.trim();
     final sessionId = await DBHelper().insertSession(
       exerciseId,
       DateTime.now(),
+      note: noteText.isEmpty ? null : noteText,
     );
 
     final setEntries = collectValidSetEntries(
@@ -231,6 +238,10 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
     await _loadSessions();
     if (!mounted) return;
     _resetRowsForType(_selectedType);
+    setState(() {
+      _noteController.clear();
+      _showNoteField = false;
+    });
     if (!mounted) return;
     ScaffoldMessenger.of(
       context,
@@ -286,6 +297,17 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
+                                if ((session['note'] as String?)?.isNotEmpty ??
+                                    false) ...[
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    session['note'] as String,
+                                    style: const TextStyle(
+                                      fontStyle: FontStyle.italic,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                ],
                                 const SizedBox(height: 8),
                                 ..._buildSetRows(sets),
                               ],
@@ -556,6 +578,40 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
                         ),
                       ],
                     ),
+                    const SizedBox(height: 8),
+                    if (!_showNoteField)
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton.icon(
+                          icon: const Icon(Icons.note_add_outlined),
+                          label: const Text('Add note'),
+                          onPressed: () =>
+                              setState(() => _showNoteField = true),
+                        ),
+                      )
+                    else
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8.0),
+                        child: TextField(
+                          controller: _noteController,
+                          maxLines: 3,
+                          decoration: InputDecoration(
+                            labelText: 'Note',
+                            alignLabelWithHint: true,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            suffixIcon: IconButton(
+                              icon: const Icon(Icons.close),
+                              tooltip: 'Remove note',
+                              onPressed: () => setState(() {
+                                _noteController.clear();
+                                _showNoteField = false;
+                              }),
+                            ),
+                          ),
+                        ),
+                      ),
                     const SizedBox(height: 8),
                     SizedBox(
                       width: double.infinity,
