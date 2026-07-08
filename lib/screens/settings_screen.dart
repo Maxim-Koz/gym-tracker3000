@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:gym_tracker/providers/theme_provider.dart';
 import 'package:gym_tracker/screens/home_screen.dart';
 import 'package:gym_tracker/services/db_helper.dart';
+import 'package:gym_tracker/services/network_preferences.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -13,6 +14,15 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Ensures the stored value is loaded so the switch below reflects it
+    // right away (NetworkPreferences.allowMobileData defaults to true
+    // until this resolves).
+    NetworkPreferences().isMobileDataAllowed();
+  }
+
   Future<void> _handleLogout() async {
     final pending = DBHelper().pendingSyncCount.value;
     if (pending > 0) {
@@ -95,6 +105,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ],
             ),
+          ),
+          const SizedBox(height: 32),
+          const Text(
+            'Data usage',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          ValueListenableBuilder<bool>(
+            valueListenable: NetworkPreferences().allowMobileData,
+            builder: (context, allowMobileData, _) {
+              return SwitchListTile(
+                title: const Text('Use mobile data'),
+                subtitle: const Text(
+                  'When off, syncing and loading only happens over Wi-Fi - '
+                  'on mobile data the app behaves as if offline.',
+                ),
+                value: allowMobileData,
+                onChanged: (value) {
+                  NetworkPreferences().setMobileDataAllowed(value);
+                },
+              );
+            },
           ),
           const SizedBox(height: 32),
           ListTile(

@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'local_cache_db.dart';
+import 'network_preferences.dart';
 
 /// Cloud-backed, offline-capable replacement for the old SQLite DBHelper.
 ///
@@ -58,14 +59,28 @@ class DBHelper {
 
   bool _isTemp(int id) => id < 0;
 
-  /// Fast, local check of whether the device currently has a network
-  /// interface up (wifi/cellular/etc). Does not confirm real internet
-  /// reachability, but answers in milliseconds rather than seconds, which
-  /// is what matters for keeping the app snappy while offline.
+  /// Fast, local check of whether the device currently has a usable
+  /// network interface up. Does not confirm real internet reachability,
+  /// but answers in milliseconds rather than seconds, which is what
+  /// matters for keeping the app snappy while offline.
+  ///
+  /// If the only interface up is mobile (cellular) data, this also
+  /// consults [NetworkPreferences] - when the user has turned mobile data
+  /// off in Settings, a mobile-only connection is treated the same as no
+  /// connection at all, so the app falls back to the cache/queue instead
+  /// of using cellular data. Wi-Fi/ethernet/etc always count as online
+  /// regardless of that setting.
   Future<bool> _hasNetwork() async {
     try {
       final results = await _connectivity.checkConnectivity();
-      return results.any((r) => r != ConnectivityResult.none);
+      final usable = results.where((r) => r != ConnectivityResult.none).toSet();
+      if (usable.isEmpty) return false;
+
+      final hasNonMobile = usable.any((r) => r != ConnectivityResult.mobile);
+      if (hasNonMobile) return true;
+
+      // Only mobile data is available - respect the user's preference.
+      return NetworkPreferences().isMobileDataAllowed();
     } catch (_) {
       // Connectivity state unknown - fall through and let the network
       // attempt itself (bounded by _networkTimeout) decide.
