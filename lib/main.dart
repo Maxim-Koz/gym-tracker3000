@@ -14,6 +14,7 @@ import 'package:gym_tracker/screens/exercise_history_screen.dart';
 import 'package:gym_tracker/screens/year_history_screen.dart';
 import 'package:gym_tracker/screens/workout_stats_screen.dart';
 import 'package:gym_tracker/providers/theme_provider.dart';
+import 'package:gym_tracker/services/sync_service.dart';
 
 final lightTheme = ThemeData(
   brightness: Brightness.light,
@@ -42,6 +43,10 @@ void main() async {
     url: 'https://bztpiuywbgfivichfkyg.supabase.co',
     publishableKey: 'sb_publishable_mNNITpH_jYrlJpOlFoWJSA_Ncem4MEV',
   );
+
+  // Retries any queued offline writes in the background for as long as the
+  // app is running, so they go out automatically once the network is back.
+  SyncService().start();
 
   runApp(
     ChangeNotifierProvider(

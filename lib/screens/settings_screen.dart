@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:gym_tracker/providers/theme_provider.dart';
 import 'package:gym_tracker/screens/home_screen.dart';
+import 'package:gym_tracker/services/db_helper.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -13,7 +14,36 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _handleLogout() async {
+    final pending = DBHelper().pendingSyncCount.value;
+    if (pending > 0) {
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Unsynced changes'),
+          content: Text(
+            pending == 1
+                ? 'You have 1 change that hasn\'t synced yet. '
+                      'Logging out now will discard it. Log out anyway?'
+                : 'You have $pending changes that haven\'t synced yet. '
+                      'Logging out now will discard them. Log out anyway?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Log out anyway'),
+            ),
+          ],
+        ),
+      );
+      if (proceed != true) return;
+    }
+
     try {
+      await DBHelper().clearLocalDataForCurrentUser();
       await Supabase.instance.client.auth.signOut();
       HomeScreen.clearCachedUsername();
       if (mounted) {
@@ -42,35 +72,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
-          RadioListTile<ThemeMode>(
-            title: const Text('Light'),
-            value: ThemeMode.light,
+          RadioGroup<ThemeMode>(
             groupValue: themeProvider.themeMode,
             onChanged: (value) {
               if (value != null) {
                 context.read<ThemeProvider>().setThemeMode(value);
               }
             },
-          ),
-          RadioListTile<ThemeMode>(
-            title: const Text('Dark'),
-            value: ThemeMode.dark,
-            groupValue: themeProvider.themeMode,
-            onChanged: (value) {
-              if (value != null) {
-                context.read<ThemeProvider>().setThemeMode(value);
-              }
-            },
-          ),
-          RadioListTile<ThemeMode>(
-            title: const Text('System (Auto)'),
-            value: ThemeMode.system,
-            groupValue: themeProvider.themeMode,
-            onChanged: (value) {
-              if (value != null) {
-                context.read<ThemeProvider>().setThemeMode(value);
-              }
-            },
+            child: const Column(
+              children: [
+                RadioListTile<ThemeMode>(
+                  title: Text('Light'),
+                  value: ThemeMode.light,
+                ),
+                RadioListTile<ThemeMode>(
+                  title: Text('Dark'),
+                  value: ThemeMode.dark,
+                ),
+                RadioListTile<ThemeMode>(
+                  title: Text('System (Auto)'),
+                  value: ThemeMode.system,
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 32),
           ListTile(
