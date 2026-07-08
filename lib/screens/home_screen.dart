@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:gym_tracker/services/data_migration_service.dart';
 import 'package:gym_tracker/services/db_helper.dart';
 import 'package:gym_tracker/widgets/bottom_nav_bar.dart';
 import 'package:gym_tracker/widgets/workout_calendar.dart';
@@ -31,7 +32,16 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _loadUsername();
-    _loadLoggedDates();
+    _initializeWorkoutData();
+  }
+
+  // Copies any workout history still sitting in this device's local
+  // database up to the user's Supabase account (no-op after the first
+  // successful run, and on devices with nothing local to migrate), then
+  // loads the calendar from the now-authoritative cloud data.
+  Future<void> _initializeWorkoutData() async {
+    await DataMigrationService().migrateIfNeeded();
+    await _loadLoggedDates();
   }
 
   Future<void> _loadUsername() async {
