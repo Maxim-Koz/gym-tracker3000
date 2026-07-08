@@ -66,6 +66,8 @@ class MyApp extends StatelessWidget {
 
     return MaterialApp(
       title: 'SupaBase auth',
+      // Add this line right here:
+      scaffoldMessengerKey: SyncService.messengerKey,
       theme: lightTheme,
       darkTheme: darkTheme,
       themeMode: themeMode,
