@@ -35,6 +35,10 @@ class DBHelper {
   factory DBHelper() => _instance;
   DBHelper._internal();
 
+  /// Sentinel default for `note` params so callers can distinguish "leave
+  /// the note unchanged" from "clear the note" (pass note: null).
+  static const Object _unset = Object();
+
   final LocalCacheDb _cache = LocalCacheDb();
   final Connectivity _connectivity = Connectivity();
   static const _networkTimeout = Duration(seconds: 5);
@@ -411,6 +415,132 @@ class DBHelper {
     return _cache.getAllSessions(userId);
   }
 
+  /// Updates a session's note and/or date. Omit a parameter to leave it
+  /// unchanged; pass `note: null` explicitly to clear the note.
+  Future<void> updateSession(
+    int sessionId, {
+    Object? note = _unset,
+    DateTime? timestamp,
+  }) async {
+    final userId = _userId;
+    final cached = await _cache.getCachedSessionRaw(userId, sessionId);
+    if (cached == null) return;
+    final exerciseId = cached['exercise_id'] as int;
+    final newNote = identical(note, _unset)
+        ? cached['note'] as String?
+        : note as String?;
+    final newTimestampMs =
+        timestamp?.millisecondsSinceEpoch ?? cached['timestamp'] as int;
+
+    if (_isTemp(sessionId)) {
+      await _cache.upsertSession(
+        userId: userId,
+        id: sessionId,
+        exerciseId: exerciseId,
+        timestampMs: newTimestampMs,
+        note: newNote,
+        pending: true,
+      );
+      return;
+    }
+
+    if (await _hasNetwork()) {
+      try {
+        await _client
+            .from('sessions')
+            .update({
+              'note': newNote,
+              'timestamp': DateTime.fromMillisecondsSinceEpoch(
+                newTimestampMs,
+              ).toUtc().toIso8601String(),
+            })
+            .eq('user_id', userId)
+            .eq('id', sessionId)
+            .timeout(_networkTimeout);
+        await _cache.upsertSession(
+          userId: userId,
+          id: sessionId,
+          exerciseId: exerciseId,
+          timestampMs: newTimestampMs,
+          note: newNote,
+          pending: false,
+        );
+        return;
+      } catch (e) {
+        if (!_looksOffline(e)) rethrow;
+      }
+    }
+
+    await _cache.upsertSession(
+      userId: userId,
+      id: sessionId,
+      exerciseId: exerciseId,
+      timestampMs: newTimestampMs,
+      note: newNote,
+      pending: true,
+    );
+    final alreadyQueued = await _cache.hasPendingOperation(
+      userId: userId,
+      opType: 'update_session',
+      localId: sessionId,
+    );
+    if (!alreadyQueued) {
+      await _cache.enqueueOperation(
+        userId: userId,
+        opType: 'update_session',
+        localId: sessionId,
+      );
+    }
+    await refreshPendingSyncCount();
+  }
+
+  /// Deletes a session and every set (including rest-pause children) that
+  /// belongs to it. Each set is deleted individually first (so its own
+  /// online/offline/temp-id handling runs), then the session itself.
+  Future<void> deleteSession(int sessionId) async {
+    final userId = _userId;
+    final setIds = await _cache.getSetIdsForSession(userId, sessionId);
+    for (final setId in setIds) {
+      await deleteSet(setId);
+    }
+
+    if (_isTemp(sessionId)) {
+      await _cache.hardDeleteSession(userId, sessionId);
+      return;
+    }
+
+    if (await _hasNetwork()) {
+      try {
+        await _client
+            .from('sessions')
+            .delete()
+            .eq('user_id', userId)
+            .eq('id', sessionId)
+            .timeout(_networkTimeout);
+        await _cache.hardDeleteSession(userId, sessionId);
+        await refreshPendingSyncCount();
+        return;
+      } catch (e) {
+        if (!_looksOffline(e)) rethrow;
+      }
+    }
+
+    await _cache.softDeleteSession(userId, sessionId);
+    final alreadyQueued = await _cache.hasPendingOperation(
+      userId: userId,
+      opType: 'delete_session',
+      localId: sessionId,
+    );
+    if (!alreadyQueued) {
+      await _cache.enqueueOperation(
+        userId: userId,
+        opType: 'delete_session',
+        localId: sessionId,
+      );
+    }
+    await refreshPendingSyncCount();
+  }
+
   Future<List<DateTime>> getLoggedDates() async {
     final sessions = await getAllSessions();
     return sessions
@@ -573,6 +703,147 @@ class DBHelper {
     return _cache.getAllSets(userId);
   }
 
+  /// Updates a set's weight, reps, unit, and/or drop-set group index. Pass
+  /// [clearGroupIndex] to turn a drop-set row back into a normal set;
+  /// otherwise omitted fields keep their current value.
+  Future<void> updateSet(
+    int setId, {
+    double? weight,
+    int? reps,
+    String? unit,
+    int? groupIndex,
+    bool clearGroupIndex = false,
+  }) async {
+    final userId = _userId;
+    final cached = await _cache.getCachedSetRaw(userId, setId);
+    if (cached == null) return;
+
+    final newWeight = weight ?? (cached['weight'] as num?)?.toDouble();
+    final newReps = reps ?? cached['reps'] as int?;
+    final newUnit = unit ?? cached['unit'] as String?;
+    final newGroupIndex = clearGroupIndex
+        ? null
+        : (groupIndex ?? cached['group_index'] as int?);
+    final sessionId = cached['session_id'] as int;
+    final parentSetId = cached['parent_set_id'] as int?;
+
+    if (_isTemp(setId)) {
+      await _cache.upsertSet(
+        userId: userId,
+        id: setId,
+        sessionId: sessionId,
+        weight: newWeight,
+        reps: newReps,
+        unit: newUnit,
+        groupIndex: newGroupIndex,
+        parentSetId: parentSetId,
+        pending: true,
+      );
+      return;
+    }
+
+    if (await _hasNetwork()) {
+      try {
+        await _client
+            .from('sets')
+            .update({
+              'weight': newWeight,
+              'reps': newReps,
+              'unit': newUnit,
+              'group_index': newGroupIndex,
+            })
+            .eq('user_id', userId)
+            .eq('id', setId)
+            .timeout(_networkTimeout);
+        await _cache.upsertSet(
+          userId: userId,
+          id: setId,
+          sessionId: sessionId,
+          weight: newWeight,
+          reps: newReps,
+          unit: newUnit,
+          groupIndex: newGroupIndex,
+          parentSetId: parentSetId,
+          pending: false,
+        );
+        return;
+      } catch (e) {
+        if (!_looksOffline(e)) rethrow;
+      }
+    }
+
+    await _cache.upsertSet(
+      userId: userId,
+      id: setId,
+      sessionId: sessionId,
+      weight: newWeight,
+      reps: newReps,
+      unit: newUnit,
+      groupIndex: newGroupIndex,
+      parentSetId: parentSetId,
+      pending: true,
+    );
+    final alreadyQueued = await _cache.hasPendingOperation(
+      userId: userId,
+      opType: 'update_set',
+      localId: setId,
+    );
+    if (!alreadyQueued) {
+      await _cache.enqueueOperation(
+        userId: userId,
+        opType: 'update_set',
+        localId: setId,
+      );
+    }
+    await refreshPendingSyncCount();
+  }
+
+  /// Deletes a set and, recursively, any rest-pause child sets that point
+  /// at it via parent_set_id.
+  Future<void> deleteSet(int setId) async {
+    final userId = _userId;
+    final childIds = await _cache.getChildSetIds(userId, setId);
+    for (final childId in childIds) {
+      await deleteSet(childId);
+    }
+
+    if (_isTemp(setId)) {
+      await _cache.hardDeleteSet(userId, setId);
+      return;
+    }
+
+    if (await _hasNetwork()) {
+      try {
+        await _client
+            .from('sets')
+            .delete()
+            .eq('user_id', userId)
+            .eq('id', setId)
+            .timeout(_networkTimeout);
+        await _cache.hardDeleteSet(userId, setId);
+        await refreshPendingSyncCount();
+        return;
+      } catch (e) {
+        if (!_looksOffline(e)) rethrow;
+      }
+    }
+
+    await _cache.softDeleteSet(userId, setId);
+    final alreadyQueued = await _cache.hasPendingOperation(
+      userId: userId,
+      opType: 'delete_set',
+      localId: setId,
+    );
+    if (!alreadyQueued) {
+      await _cache.enqueueOperation(
+        userId: userId,
+        opType: 'delete_set',
+        localId: setId,
+      );
+    }
+    await refreshPendingSyncCount();
+  }
+
   Map<String, dynamic> _withParsedTimestamp(Map row) {
     final copy = Map<String, dynamic>.from(row);
     final raw = copy['timestamp'];
@@ -617,6 +888,18 @@ class DBHelper {
             case 'insert_set':
               final resolved = await _syncSet(userId, seq, localId);
               if (!resolved) return; // parent not synced yet, retry later
+              break;
+            case 'update_session':
+              await _syncUpdateSession(userId, seq, localId);
+              break;
+            case 'delete_session':
+              await _syncDeleteSession(userId, seq, localId);
+              break;
+            case 'update_set':
+              await _syncUpdateSet(userId, seq, localId);
+              break;
+            case 'delete_set':
+              await _syncDeleteSet(userId, seq, localId);
               break;
           }
         } catch (e) {
@@ -716,5 +999,89 @@ class DBHelper {
     await _cache.replaceSetId(userId, localId, realId);
     await _cache.deletePendingOperation(seq);
     return true;
+  }
+
+  Future<void> _syncUpdateSession(String userId, int seq, int localId) async {
+    final cached = await _cache.getCachedSessionRaw(userId, localId);
+    if (cached == null) {
+      await _cache.deletePendingOperation(seq);
+      return;
+    }
+    final timestampMs = cached['timestamp'] as int;
+    await _client
+        .from('sessions')
+        .update({
+          'note': cached['note'],
+          'timestamp': DateTime.fromMillisecondsSinceEpoch(
+            timestampMs,
+          ).toUtc().toIso8601String(),
+        })
+        .eq('user_id', userId)
+        .eq('id', localId)
+        .timeout(_networkTimeout);
+    await _cache.upsertSession(
+      userId: userId,
+      id: localId,
+      exerciseId: cached['exercise_id'] as int,
+      timestampMs: timestampMs,
+      note: cached['note'] as String?,
+      pending: false,
+      deleted: (cached['deleted'] as int? ?? 0) == 1,
+    );
+    await _cache.deletePendingOperation(seq);
+  }
+
+  Future<void> _syncDeleteSession(String userId, int seq, int localId) async {
+    await _client
+        .from('sessions')
+        .delete()
+        .eq('user_id', userId)
+        .eq('id', localId)
+        .timeout(_networkTimeout);
+    await _cache.hardDeleteSession(userId, localId);
+    await _cache.deletePendingOperation(seq);
+  }
+
+  Future<void> _syncUpdateSet(String userId, int seq, int localId) async {
+    final cached = await _cache.getCachedSetRaw(userId, localId);
+    if (cached == null) {
+      await _cache.deletePendingOperation(seq);
+      return;
+    }
+    await _client
+        .from('sets')
+        .update({
+          'weight': cached['weight'],
+          'reps': cached['reps'],
+          'unit': cached['unit'],
+          'group_index': cached['group_index'],
+        })
+        .eq('user_id', userId)
+        .eq('id', localId)
+        .timeout(_networkTimeout);
+    await _cache.upsertSet(
+      userId: userId,
+      id: localId,
+      sessionId: cached['session_id'] as int,
+      weight: (cached['weight'] as num?)?.toDouble(),
+      reps: cached['reps'] as int?,
+      unit: cached['unit'] as String?,
+      groupIndex: cached['group_index'] as int?,
+      parentSetId: cached['parent_set_id'] as int?,
+      pending: false,
+      deleted: (cached['deleted'] as int? ?? 0) == 1,
+    );
+    await _cache.deletePendingOperation(seq);
+  }
+
+  Future<void> _syncDeleteSet(String userId, int seq, int localId) async {
+    await _client
+        .from('sets')
+        .delete()
+        .eq('user_id', userId)
+        .eq('id', localId)
+        .timeout(_networkTimeout);
+    await _cache.hardDeleteSet(userId, localId);
+    await _cache.deletePendingOperation(seq);
   }
 }

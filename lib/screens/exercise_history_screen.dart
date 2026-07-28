@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:gym_tracker/services/db_helper.dart';
+import 'package:gym_tracker/widgets/edit_log_sheet.dart';
 import 'package:gym_tracker/widgets/weight_progress_chart.dart';
 
 enum _ViewMode { log, graph }
@@ -135,12 +136,30 @@ class _ExerciseHistoryScreenState extends State<ExerciseHistoryScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    _formatDate(date),
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        _formatDate(date),
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      InkWell(
+                        borderRadius: BorderRadius.circular(20),
+                        onTap: () => showEditLogSheet(
+                          context: context,
+                          session: session,
+                          sets: sets,
+                          onChanged: _loadSessions,
+                        ),
+                        child: const Padding(
+                          padding: EdgeInsets.all(4.0),
+                          child: Icon(Icons.more_vert, size: 20),
+                        ),
+                      ),
+                    ],
                   ),
                   if ((session['note'] as String?)?.isNotEmpty ?? false) ...[
                     const SizedBox(height: 4),

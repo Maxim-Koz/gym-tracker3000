@@ -33,7 +33,17 @@ class LocalCacheDb {
     final path = join(databasesPath, 'gym_tracker_cache.db');
     return await openDatabase(
       path,
-      version: 1,
+      version: 2,
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute(
+            'ALTER TABLE cached_sessions ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0',
+          );
+          await db.execute(
+            'ALTER TABLE cached_sets ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0',
+          );
+        }
+      },
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE cached_exercises (
@@ -54,6 +64,7 @@ class LocalCacheDb {
             timestamp INTEGER NOT NULL,
             note TEXT,
             pending INTEGER NOT NULL DEFAULT 0,
+            deleted INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (id, user_id)
           )
         ''');
@@ -68,6 +79,7 @@ class LocalCacheDb {
             group_index INTEGER,
             parent_set_id INTEGER,
             pending INTEGER NOT NULL DEFAULT 0,
+            deleted INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (id, user_id)
           )
         ''');
@@ -145,6 +157,7 @@ class LocalCacheDb {
     required int timestampMs,
     String? note,
     required bool pending,
+    bool deleted = false,
   }) async {
     final database = await db;
     await database.insert('cached_sessions', {
@@ -154,6 +167,7 @@ class LocalCacheDb {
       'timestamp': timestampMs,
       'note': note,
       'pending': pending ? 1 : 0,
+      'deleted': deleted ? 1 : 0,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
@@ -167,6 +181,7 @@ class LocalCacheDb {
     int? groupIndex,
     int? parentSetId,
     required bool pending,
+    bool deleted = false,
   }) async {
     final database = await db;
     await database.insert('cached_sets', {
@@ -179,6 +194,7 @@ class LocalCacheDb {
       'group_index': groupIndex,
       'parent_set_id': parentSetId,
       'pending': pending ? 1 : 0,
+      'deleted': deleted ? 1 : 0,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
@@ -204,6 +220,7 @@ class LocalCacheDb {
     final copy = Map<String, dynamic>.from(row);
     copy.remove('user_id');
     copy.remove('pending');
+    copy.remove('deleted');
     copy['timestamp'] = DateTime.fromMillisecondsSinceEpoch(
       copy['timestamp'] as int,
     );
@@ -214,6 +231,7 @@ class LocalCacheDb {
     final copy = Map<String, dynamic>.from(row);
     copy.remove('user_id');
     copy.remove('pending');
+    copy.remove('deleted');
     return copy;
   }
 
@@ -262,7 +280,7 @@ class LocalCacheDb {
     final database = await db;
     final rows = await database.query(
       'cached_sessions',
-      where: 'user_id = ? AND exercise_id = ?',
+      where: 'user_id = ? AND exercise_id = ? AND deleted = 0',
       whereArgs: [userId, exerciseId],
       orderBy: 'timestamp DESC',
     );
@@ -273,7 +291,7 @@ class LocalCacheDb {
     final database = await db;
     final rows = await database.query(
       'cached_sessions',
-      where: 'user_id = ?',
+      where: 'user_id = ? AND deleted = 0',
       whereArgs: [userId],
       orderBy: 'timestamp ASC',
     );
@@ -287,7 +305,7 @@ class LocalCacheDb {
     final database = await db;
     final rows = await database.query(
       'cached_sets',
-      where: 'user_id = ? AND session_id = ?',
+      where: 'user_id = ? AND session_id = ? AND deleted = 0',
       whereArgs: [userId, sessionId],
       orderBy: 'id ASC',
     );
@@ -298,7 +316,7 @@ class LocalCacheDb {
     final database = await db;
     final rows = await database.query(
       'cached_sets',
-      where: 'user_id = ?',
+      where: 'user_id = ? AND deleted = 0',
       whereArgs: [userId],
       orderBy: 'id ASC',
     );
@@ -500,6 +518,80 @@ class LocalCacheDb {
   }
 
   // ---------------------------------------------------------------------
+  // Deletion / update support.
+  //
+  // A row that has already synced to Supabase can't just be removed from
+  // the cache the moment the user deletes it offline - a background
+  // refresh could still pull it back down from the server before the
+  // delete itself has synced. So non-temp rows are "soft" deleted
+  // (deleted = 1, pending = 1) so reads hide them immediately while
+  // refresh*() still leaves them alone (it only overwrites pending = 0
+  // rows), until the queued delete confirms against Supabase and the row
+  // is hard-removed for good. Temp (never-synced) rows have no server
+  // copy to protect against, so they're simply removed outright.
+  // ---------------------------------------------------------------------
+
+  Future<List<int>> getChildSetIds(String userId, int parentId) async {
+    final database = await db;
+    final rows = await database.query(
+      'cached_sets',
+      columns: ['id'],
+      where: 'user_id = ? AND parent_set_id = ?',
+      whereArgs: [userId, parentId],
+    );
+    return rows.map((r) => r['id'] as int).toList();
+  }
+
+  Future<List<int>> getSetIdsForSession(String userId, int sessionId) async {
+    final database = await db;
+    final rows = await database.query(
+      'cached_sets',
+      columns: ['id'],
+      where: 'user_id = ? AND session_id = ?',
+      whereArgs: [userId, sessionId],
+    );
+    return rows.map((r) => r['id'] as int).toList();
+  }
+
+  Future<void> softDeleteSet(String userId, int id) async {
+    final database = await db;
+    await database.update(
+      'cached_sets',
+      {'deleted': 1, 'pending': 1},
+      where: 'user_id = ? AND id = ?',
+      whereArgs: [userId, id],
+    );
+  }
+
+  Future<void> softDeleteSession(String userId, int id) async {
+    final database = await db;
+    await database.update(
+      'cached_sessions',
+      {'deleted': 1, 'pending': 1},
+      where: 'user_id = ? AND id = ?',
+      whereArgs: [userId, id],
+    );
+  }
+
+  Future<void> hardDeleteSet(String userId, int id) async {
+    final database = await db;
+    await database.delete(
+      'cached_sets',
+      where: 'user_id = ? AND id = ?',
+      whereArgs: [userId, id],
+    );
+  }
+
+  Future<void> hardDeleteSession(String userId, int id) async {
+    final database = await db;
+    await database.delete(
+      'cached_sessions',
+      where: 'user_id = ? AND id = ?',
+      whereArgs: [userId, id],
+    );
+  }
+
+  // ---------------------------------------------------------------------
   // Raw (undecoded) single-row lookups used by the sync step - it reads
   // the row's *current* field values, which reflect any earlier id
   // replacements from ancestors that synced earlier in the same run.
@@ -569,6 +661,21 @@ class LocalCacheDb {
       whereArgs: [userId],
       orderBy: 'seq ASC',
     );
+  }
+
+  Future<bool> hasPendingOperation({
+    required String userId,
+    required String opType,
+    required int localId,
+  }) async {
+    final database = await db;
+    final rows = await database.query(
+      'pending_operations',
+      where: 'user_id = ? AND op_type = ? AND local_id = ?',
+      whereArgs: [userId, opType, localId],
+      limit: 1,
+    );
+    return rows.isNotEmpty;
   }
 
   Future<void> deletePendingOperation(int seq) async {

@@ -1,4 +1,6 @@
 # Miscellaneous
+.env
+litellm_config.yaml
 *.class
 *.log
 *.pyc

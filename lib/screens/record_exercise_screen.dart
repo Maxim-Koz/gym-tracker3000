@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:gym_tracker/services/db_helper.dart';
 import 'package:gym_tracker/services/set_entry_utils.dart';
+import 'package:gym_tracker/widgets/edit_log_sheet.dart';
 
 class RecordExerciseScreen extends StatefulWidget {
   const RecordExerciseScreen({super.key});
@@ -291,11 +292,30 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  _formatDate(date),
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                  ),
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      _formatDate(date),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    InkWell(
+                                      borderRadius: BorderRadius.circular(20),
+                                      onTap: () => showEditLogSheet(
+                                        context: context,
+                                        session: session,
+                                        sets: sets,
+                                        onChanged: _loadSessions,
+                                      ),
+                                      child: const Padding(
+                                        padding: EdgeInsets.all(4.0),
+                                        child: Icon(Icons.more_vert, size: 20),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                                 if ((session['note'] as String?)?.isNotEmpty ??
                                     false) ...[
