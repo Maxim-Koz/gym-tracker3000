@@ -295,6 +295,86 @@ class DBHelper {
     return _cache.getExercises(userId);
   }
 
+  /// Updates the free-form "metadata" note stored for an exercise (e.g.
+  /// machine settings, form cues), preserving any other keys already
+  /// present in that exercise's `data` map. Pass an empty string to clear
+  /// the note.
+  Future<void> updateExerciseMetadata(int exerciseId, String metadata) async {
+    final userId = _userId;
+    final cached = await _cache.getCachedExerciseRaw(userId, exerciseId);
+    if (cached == null) return;
+
+    final rawData = cached['data'];
+    final data = rawData == null
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(jsonDecode(rawData as String) as Map);
+    if (metadata.isEmpty) {
+      data.remove('metadata');
+    } else {
+      data['metadata'] = metadata;
+    }
+    final name = cached['name'] as String;
+    final type = cached['type'] as String;
+
+    if (_isTemp(exerciseId)) {
+      // Not synced yet - the queued 'insert_exercise' operation reads the
+      // cache's current data at sync time, so no new op is needed here.
+      await _cache.upsertExercise(
+        userId: userId,
+        id: exerciseId,
+        name: name,
+        type: type,
+        data: data,
+        pending: true,
+      );
+      return;
+    }
+
+    if (await _hasNetwork()) {
+      try {
+        await _client
+            .from('exercises')
+            .update({'data': data})
+            .eq('user_id', userId)
+            .eq('id', exerciseId)
+            .timeout(_networkTimeout);
+        await _cache.upsertExercise(
+          userId: userId,
+          id: exerciseId,
+          name: name,
+          type: type,
+          data: data,
+          pending: false,
+        );
+        return;
+      } catch (e) {
+        if (!_looksOffline(e)) rethrow;
+      }
+    }
+
+    await _cache.upsertExercise(
+      userId: userId,
+      id: exerciseId,
+      name: name,
+      type: type,
+      data: data,
+      pending: true,
+    );
+    final alreadyQueued = await _cache.hasPendingOperation(
+      userId: userId,
+      opType: 'update_exercise',
+      localId: exerciseId,
+    );
+    if (!alreadyQueued) {
+      await _cache.enqueueOperation(
+        userId: userId,
+        opType: 'update_exercise',
+        localId: exerciseId,
+      );
+    }
+    await refreshPendingSyncCount();
+  }
+
   // -------------------------------------------------------------------
   // Sessions
   // -------------------------------------------------------------------
@@ -889,6 +969,9 @@ class DBHelper {
               final resolved = await _syncSet(userId, seq, localId);
               if (!resolved) return; // parent not synced yet, retry later
               break;
+            case 'update_exercise':
+              await _syncUpdateExercise(userId, seq, localId);
+              break;
             case 'update_session':
               await _syncUpdateSession(userId, seq, localId);
               break;
@@ -938,6 +1021,33 @@ class DBHelper {
         .timeout(_networkTimeout);
     final realId = row['id'] as int;
     await _cache.replaceExerciseId(userId, localId, realId);
+    await _cache.deletePendingOperation(seq);
+  }
+
+  Future<void> _syncUpdateExercise(String userId, int seq, int localId) async {
+    final cached = await _cache.getCachedExerciseRaw(userId, localId);
+    if (cached == null) {
+      await _cache.deletePendingOperation(seq);
+      return;
+    }
+    final rawData = cached['data'];
+    final data = rawData == null
+        ? <String, dynamic>{}
+        : jsonDecode(rawData as String) as Map<String, dynamic>;
+    await _client
+        .from('exercises')
+        .update({'data': data})
+        .eq('user_id', userId)
+        .eq('id', localId)
+        .timeout(_networkTimeout);
+    await _cache.upsertExercise(
+      userId: userId,
+      id: localId,
+      name: cached['name'] as String,
+      type: cached['type'] as String,
+      data: data,
+      pending: false,
+    );
     await _cache.deletePendingOperation(seq);
   }
 

@@ -38,7 +38,9 @@ List<Map<String, dynamic>> collectValidSetEntries({
         final values = row.toMap();
         final weight = values['weight'] as double;
         final reps = values['reps'] as int;
-        if (weight > 0 && reps > 0) {
+        // Weight may be negative (e.g. assisted dips/pull-ups, recorded as
+        // negative to mean "this much assistance"); only reps must be > 0.
+        if (reps > 0) {
           entries.add({
             'weight': weight,
             'reps': reps,
@@ -60,7 +62,9 @@ List<Map<String, dynamic>> collectValidSetEntries({
     final weight = double.tryParse(weightController?.text.trim() ?? '') ?? 0.0;
     final reps = int.tryParse(repsController?.text.trim() ?? '') ?? 0;
     final unit = row['unit'] as String? ?? 'kg';
-    if (weight > 0 && reps > 0) {
+    // Weight may be negative (e.g. assisted dips/pull-ups, recorded as
+    // negative to mean "this much assistance"); only reps must be > 0.
+    if (reps > 0) {
       final restPauses = <int>[];
       if (restPauseControllers != null) {
         for (final pauseController in restPauseControllers) {

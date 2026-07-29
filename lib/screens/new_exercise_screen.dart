@@ -216,6 +216,7 @@ class _NewExerciseScreenState extends State<NewExerciseScreen> {
                                   keyboardType:
                                       const TextInputType.numberWithOptions(
                                         decimal: true,
+                                        signed: true,
                                       ),
                                   decoration: const InputDecoration(
                                     labelText: 'Weight',
@@ -366,6 +367,7 @@ class _NewExerciseScreenState extends State<NewExerciseScreen> {
                                           keyboardType:
                                               const TextInputType.numberWithOptions(
                                                 decimal: true,
+                                                signed: true,
                                               ),
                                           decoration: const InputDecoration(
                                             labelText: 'Weight',

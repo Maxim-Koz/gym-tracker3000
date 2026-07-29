@@ -182,12 +182,148 @@ class _LogSessionScreenState extends State<LogSessionScreen> {
     ).showSnackBar(const SnackBar(content: Text('Session saved')));
   }
 
+  String get _exerciseMetadata {
+    final data = _exercise?['data'];
+    if (data is Map) {
+      return data['metadata'] as String? ?? '';
+    }
+    return '';
+  }
+
+  Future<void> _showExerciseInfoSheet() async {
+    if (_exercise == null) return;
+    var metadata = _exerciseMetadata;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (sheetContext, setSheetState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 16,
+                right: 16,
+                top: 16,
+                bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 16,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    (_exercise?['name'] as String?) ?? 'Exercise',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  metadata.isEmpty
+                      ? const Text(
+                          'No notes yet for this exercise.',
+                          style: TextStyle(color: Colors.grey),
+                        )
+                      : Text(metadata),
+                  const SizedBox(height: 20),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton.icon(
+                      icon: const Icon(Icons.edit_outlined),
+                      label: const Text('Edit exercise metadata'),
+                      onPressed: () async {
+                        final updated = await _showEditMetadataDialog(metadata);
+                        if (updated == null) return;
+
+                        final exerciseId = _exercise?['id'] as int?;
+                        if (exerciseId != null) {
+                          await DBHelper().updateExerciseMetadata(
+                            exerciseId,
+                            updated,
+                          );
+                          final data = Map<String, dynamic>.from(
+                            (_exercise?['data'] as Map?) ?? <String, dynamic>{},
+                          );
+                          if (updated.isEmpty) {
+                            data.remove('metadata');
+                          } else {
+                            data['metadata'] = updated;
+                          }
+                          if (mounted) {
+                            setState(() {
+                              _exercise = {..._exercise!, 'data': data};
+                            });
+                          }
+                        }
+
+                        setSheetState(() => metadata = updated);
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<String?> _showEditMetadataDialog(String current) async {
+    final controller = TextEditingController(text: current);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Edit exercise metadata'),
+        content: TextField(
+          controller: controller,
+          maxLines: 4,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText:
+                'Add notes about this exercise (form cues, machine settings, etc.)',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () =>
+                Navigator.of(dialogContext).pop(controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    return result;
+  }
+
   @override
   Widget build(BuildContext context) {
     final exerciseName = _exercise?['name'] ?? 'Exercise';
 
     return Scaffold(
-      appBar: AppBar(title: Text('Record $exerciseName')),
+      appBar: AppBar(
+        title: Row(
+          children: [
+            Flexible(
+              child: Text(
+                'Record $exerciseName',
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.info_outline),
+              tooltip: 'Exercise info',
+              onPressed: _showExerciseInfoSheet,
+            ),
+          ],
+        ),
+      ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -252,6 +388,7 @@ class _LogSessionScreenState extends State<LogSessionScreen> {
                                               keyboardType:
                                                   const TextInputType.numberWithOptions(
                                                     decimal: true,
+                                                    signed: true,
                                                   ),
                                               decoration: const InputDecoration(
                                                 labelText: 'Weight',
@@ -327,6 +464,7 @@ class _LogSessionScreenState extends State<LogSessionScreen> {
                                   keyboardType:
                                       const TextInputType.numberWithOptions(
                                         decimal: true,
+                                        signed: true,
                                       ),
                                   decoration: const InputDecoration(
                                     labelText: 'Weight',

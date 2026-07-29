@@ -249,6 +249,113 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
     ).showSnackBar(const SnackBar(content: Text('Session saved')));
   }
 
+  String get _exerciseInfo {
+    final data = _exercise?['data'];
+    if (data is Map) {
+      return data['metadata'] as String? ?? '';
+    }
+    return '';
+  }
+
+  Future<void> _showExerciseInfoSheet() async {
+    if (_exercise == null) return;
+    var info = _exerciseInfo;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (sheetContext) {
+        // We rename the inner context to 'innerContext' to avoid shadowing and allow proper mounted checks.
+        return StatefulBuilder(
+          builder: (innerContext, setSheetState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 16,
+                right: 16,
+                top: 16,
+                bottom: MediaQuery.of(innerContext).viewInsets.bottom + 16,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    (_exercise?['name'] as String?) ?? 'Exercise',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  info.isEmpty
+                      ? const Text(
+                          'No info added yet for this exercise.',
+                          style: TextStyle(color: Colors.grey),
+                        )
+                      : Text(info),
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () async {
+                        final updated = await _showEditInfoDialog(
+                          innerContext,
+                          info,
+                        );
+                        if (updated == null) return;
+
+                        final exerciseId = _exercise?['id'] as int?;
+                        if (exerciseId != null) {
+                          await DBHelper().updateExerciseMetadata(
+                            exerciseId,
+                            updated,
+                          );
+                          final data = Map<String, dynamic>.from(
+                            (_exercise?['data'] as Map?) ?? <String, dynamic>{},
+                          );
+                          if (updated.isEmpty) {
+                            data.remove('metadata');
+                          } else {
+                            data['metadata'] = updated;
+                          }
+
+                          // 1. Check if the main screen is still mounted
+                          if (mounted) {
+                            setState(() {
+                              _exercise = {..._exercise!, 'data': data};
+                            });
+                          }
+                        }
+
+                        // 2. Check if the bottom sheet is still mounted before setting sheet state
+                        if (!innerContext.mounted) return;
+                        setSheetState(() => info = updated);
+                      },
+                      child: const Text('Edit exercise info'),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<String?> _showEditInfoDialog(
+    BuildContext context,
+    String current,
+  ) async {
+    return showDialog<String>(
+      context: context,
+      builder: (dialogContext) => _EditInfoDialog(initialText: current),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final args =
@@ -263,7 +370,16 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
     final name = args['name'] ?? 'Exercise';
 
     return Scaffold(
-      appBar: AppBar(title: Text(name)),
+      appBar: AppBar(
+        title: Text(name),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.info_outline),
+            tooltip: 'Exercise info',
+            onPressed: _exercise == null ? null : _showExerciseInfoSheet,
+          ),
+        ],
+      ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -408,6 +524,7 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
                                             keyboardType:
                                                 const TextInputType.numberWithOptions(
                                                   decimal: true,
+                                                  signed: true,
                                                 ),
                                             decoration: const InputDecoration(
                                               labelText: 'Weight',
@@ -481,6 +598,7 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
                                       keyboardType:
                                           const TextInputType.numberWithOptions(
                                             decimal: true,
+                                            signed: true,
                                           ),
                                       decoration: const InputDecoration(
                                         labelText: 'Weight',
@@ -655,9 +773,6 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
     return '${local.day.toString().padLeft(2, '0')}/${local.month.toString().padLeft(2, '0')}/${local.year}';
   }
 
-  // Builds the widgets for a session's sets. If any set carries a
-  // group_index (i.e. it was recorded as part of a drop set), the sets are
-  // clustered under a "Drop set group N" header instead of shown flat.
   List<Widget> _buildSetRows(List<Map<String, dynamic>> sets) {
     final childrenByParent = <int, List<Map<String, dynamic>>>{};
     final parentRows = <Map<String, dynamic>>[];
@@ -761,5 +876,58 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
     }
     final isSingleRep = values.length == 1 && values.first == '1';
     return '${values.join(', ')} ${isSingleRep ? 'rep' : 'reps'}';
+  }
+}
+
+// 3. New Stateful Widget explicitly to scope the TextEditingController
+class _EditInfoDialog extends StatefulWidget {
+  final String initialText;
+
+  const _EditInfoDialog({required this.initialText});
+
+  @override
+  State<_EditInfoDialog> createState() => _EditInfoDialogState();
+}
+
+class _EditInfoDialogState extends State<_EditInfoDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialText);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Edit exercise info'),
+      content: TextField(
+        controller: _controller,
+        maxLines: 4,
+        autofocus: true,
+        decoration: const InputDecoration(
+          hintText:
+              'Add notes about this exercise (form cues, machine settings, etc.)',
+          border: OutlineInputBorder(),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(_controller.text.trim()),
+          child: const Text('Confirm'),
+        ),
+      ],
+    );
   }
 }
