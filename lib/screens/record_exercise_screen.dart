@@ -16,6 +16,7 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
   final List<Map<String, dynamic>> _normalRows = [];
   final List<DropGroup> _dropGroups = [];
   String _selectedType = 'normal';
+  String _selectedUnit = 'kg';
   final TextEditingController _noteController = TextEditingController();
   bool _showNoteField = false;
 
@@ -79,14 +80,35 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
       _dropGroups.clear();
 
       if (type == 'drop') {
-        _dropGroups.add(DropGroup());
+        final group = DropGroup();
+        _applyUnitToGroup(group);
+        _dropGroups.add(group);
       } else {
         _normalRows.add({
           'weight': TextEditingController(),
           'reps': TextEditingController(),
-          'unit': 'kg',
+          'unit': _selectedUnit,
           'restPauses': <TextEditingController>[],
         });
+      }
+    });
+  }
+
+  void _applyUnitToGroup(DropGroup group) {
+    for (final row in group.rows) {
+      row.unit = _selectedUnit;
+    }
+  }
+
+  void _changeUnit(String? value) {
+    if (value == null || value == _selectedUnit) return;
+    setState(() {
+      _selectedUnit = value;
+      for (final row in _normalRows) {
+        row['unit'] = _selectedUnit;
+      }
+      for (final group in _dropGroups) {
+        _applyUnitToGroup(group);
       }
     });
   }
@@ -122,7 +144,7 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
       _normalRows.add({
         'weight': TextEditingController(),
         'reps': TextEditingController(),
-        'unit': 'kg',
+        'unit': _selectedUnit,
         'restPauses': <TextEditingController>[],
       });
     });
@@ -130,13 +152,15 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
 
   void _addDropRow(int groupIndex) {
     setState(() {
-      _dropGroups[groupIndex].rows.add(SetEntryRow());
+      _dropGroups[groupIndex].rows.add(SetEntryRow()..unit = _selectedUnit);
     });
   }
 
   void _addDropGroup() {
     setState(() {
-      _dropGroups.add(DropGroup());
+      final group = DropGroup();
+      _applyUnitToGroup(group);
+      _dropGroups.add(group);
     });
   }
 
@@ -483,6 +507,17 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
                           ],
                           onChanged: _changeSetType,
                         ),
+                        const SizedBox(width: 20),
+                        const Text('Unit'),
+                        const SizedBox(width: 12),
+                        DropdownButton<String>(
+                          value: _selectedUnit,
+                          items: const [
+                            DropdownMenuItem(value: 'kg', child: Text('kg')),
+                            DropdownMenuItem(value: 'lb', child: Text('lb')),
+                          ],
+                          onChanged: _changeUnit,
+                        ),
                       ],
                     ),
                     const SizedBox(height: 12),
@@ -530,23 +565,6 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
                                               labelText: 'Weight',
                                             ),
                                           ),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        DropdownButton<String>(
-                                          value: row.unit,
-                                          items: const [
-                                            DropdownMenuItem(
-                                              value: 'kg',
-                                              child: Text('kg'),
-                                            ),
-                                            DropdownMenuItem(
-                                              value: 'lb',
-                                              child: Text('lb'),
-                                            ),
-                                          ],
-                                          onChanged: (value) => setState(() {
-                                            if (value != null) row.unit = value;
-                                          }),
                                         ),
                                         const SizedBox(width: 8),
                                         Expanded(
@@ -604,22 +622,6 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
                                         labelText: 'Weight',
                                       ),
                                     ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  DropdownButton<String>(
-                                    value: row['unit'] as String?,
-                                    items: const [
-                                      DropdownMenuItem(
-                                        value: 'kg',
-                                        child: Text('kg'),
-                                      ),
-                                      DropdownMenuItem(
-                                        value: 'lb',
-                                        child: Text('lb'),
-                                      ),
-                                    ],
-                                    onChanged: (value) =>
-                                        setState(() => row['unit'] = value),
                                   ),
                                   const SizedBox(width: 8),
                                   Expanded(
