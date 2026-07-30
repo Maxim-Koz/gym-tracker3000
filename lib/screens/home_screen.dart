@@ -94,6 +94,9 @@ class _HomeScreenState extends State<HomeScreen> {
         Navigator.of(context).pushNamed('/add_exercise');
         break;
       case 2:
+        Navigator.of(context).pushNamed('/weight');
+        break;
+      case 3:
         Navigator.of(context).pushNamed('/settings');
         break;
     }

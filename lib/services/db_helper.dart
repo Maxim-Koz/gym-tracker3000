@@ -138,6 +138,7 @@ class DBHelper {
       await getExercises();
       await getAllSessions();
       await getAllSets();
+      await getBodyWeights();
     } catch (_) {
       // Best-effort - whichever screen is actually opened will retry.
     }
@@ -370,6 +371,174 @@ class DBHelper {
         userId: userId,
         opType: 'update_exercise',
         localId: exerciseId,
+      );
+    }
+    await refreshPendingSyncCount();
+  }
+
+  // -------------------------------------------------------------------
+  // Body weight
+  // -------------------------------------------------------------------
+
+  Future<int> insertBodyWeight(
+    double weight,
+    String unit, {
+    DateTime? timestamp,
+  }) async {
+    final userId = _userId;
+    final effectiveTimestamp = timestamp ?? DateTime.now();
+    if (await _hasNetwork()) {
+      try {
+        final row = await _client
+            .from('body_weights')
+            .insert({
+              'user_id': userId,
+              'weight': weight,
+              'unit': unit,
+              'timestamp': effectiveTimestamp.toUtc().toIso8601String(),
+            })
+            .select('id')
+            .single()
+            .timeout(_networkTimeout);
+        final id = row['id'] as int;
+        await _cache.upsertBodyWeight(
+          userId: userId,
+          id: id,
+          weight: weight,
+          unit: unit,
+          timestampMs: effectiveTimestamp.millisecondsSinceEpoch,
+          pending: false,
+        );
+        return id;
+      } catch (e) {
+        if (!_looksOffline(e)) rethrow;
+      }
+    }
+    return _queueBodyWeightInsert(userId, weight, unit, effectiveTimestamp);
+  }
+
+  Future<int> _queueBodyWeightInsert(
+    String userId,
+    double weight,
+    String unit,
+    DateTime timestamp,
+  ) async {
+    final tempId = await _cache.nextTempId(userId);
+    await _cache.upsertBodyWeight(
+      userId: userId,
+      id: tempId,
+      weight: weight,
+      unit: unit,
+      timestampMs: timestamp.millisecondsSinceEpoch,
+      pending: true,
+    );
+    await _cache.enqueueOperation(
+      userId: userId,
+      opType: 'insert_body_weight',
+      localId: tempId,
+    );
+    await refreshPendingSyncCount();
+    return tempId;
+  }
+
+  /// Newest entry first.
+  Future<List<Map<String, dynamic>>> getBodyWeights() async {
+    final userId = _userId;
+    if (await _hasNetwork()) {
+      try {
+        final rows = await _client
+            .from('body_weights')
+            .select()
+            .eq('user_id', userId)
+            .order('timestamp', ascending: false)
+            .timeout(_networkTimeout);
+        await _cache.refreshBodyWeights(
+          userId,
+          rows.map((w) => _withParsedTimestamp(w as Map)).toList(),
+        );
+      } catch (_) {
+        // Any failure here (not just an obviously network-shaped
+        // error) just means we fall back to the cache below - a
+        // stale read is always better than crashing the screen.
+      }
+    }
+    return _cache.getBodyWeights(userId);
+  }
+
+  /// Updates a body weight entry's weight, unit, and/or date. Omit a
+  /// parameter to leave it unchanged.
+  Future<void> updateBodyWeight(
+    int id, {
+    double? weight,
+    String? unit,
+    DateTime? timestamp,
+  }) async {
+    final userId = _userId;
+    final cached = await _cache.getCachedBodyWeightRaw(userId, id);
+    if (cached == null) return;
+    final newWeight = weight ?? (cached['weight'] as num).toDouble();
+    final newUnit = unit ?? cached['unit'] as String;
+    final newTimestampMs =
+        timestamp?.millisecondsSinceEpoch ?? cached['timestamp'] as int;
+
+    if (_isTemp(id)) {
+      await _cache.upsertBodyWeight(
+        userId: userId,
+        id: id,
+        weight: newWeight,
+        unit: newUnit,
+        timestampMs: newTimestampMs,
+        pending: true,
+      );
+      return;
+    }
+
+    if (await _hasNetwork()) {
+      try {
+        await _client
+            .from('body_weights')
+            .update({
+              'weight': newWeight,
+              'unit': newUnit,
+              'timestamp': DateTime.fromMillisecondsSinceEpoch(
+                newTimestampMs,
+              ).toUtc().toIso8601String(),
+            })
+            .eq('user_id', userId)
+            .eq('id', id)
+            .timeout(_networkTimeout);
+        await _cache.upsertBodyWeight(
+          userId: userId,
+          id: id,
+          weight: newWeight,
+          unit: newUnit,
+          timestampMs: newTimestampMs,
+          pending: false,
+        );
+        return;
+      } catch (e) {
+        if (!_looksOffline(e)) rethrow;
+      }
+    }
+
+    await _cache.upsertBodyWeight(
+      userId: userId,
+      id: id,
+      weight: newWeight,
+      unit: newUnit,
+      timestampMs: newTimestampMs,
+      pending: true,
+    );
+    final alreadyQueued = await _cache.hasPendingOperation(
+      userId: userId,
+      opType: 'update_body_weight',
+      localId: id,
+    );
+    if (!alreadyQueued) {
+      await _cache.enqueueOperation(
+        userId: userId,
+        opType: 'update_body_weight',
+        localId: id,
       );
     }
     await refreshPendingSyncCount();
@@ -961,6 +1130,12 @@ class DBHelper {
             case 'insert_exercise':
               await _syncExercise(userId, seq, localId);
               break;
+            case 'insert_body_weight':
+              await _syncBodyWeight(userId, seq, localId);
+              break;
+            case 'update_body_weight':
+              await _syncUpdateBodyWeight(userId, seq, localId);
+              break;
             case 'insert_session':
               final resolved = await _syncSession(userId, seq, localId);
               if (!resolved) return; // parent not synced yet, retry later
@@ -1046,6 +1221,64 @@ class DBHelper {
       name: cached['name'] as String,
       type: cached['type'] as String,
       data: data,
+      pending: false,
+    );
+    await _cache.deletePendingOperation(seq);
+  }
+
+  Future<void> _syncBodyWeight(String userId, int seq, int localId) async {
+    final cached = await _cache.getCachedBodyWeightRaw(userId, localId);
+    if (cached == null) {
+      await _cache.deletePendingOperation(seq);
+      return;
+    }
+    final row = await _client
+        .from('body_weights')
+        .insert({
+          'user_id': userId,
+          'weight': cached['weight'],
+          'unit': cached['unit'],
+          'timestamp': DateTime.fromMillisecondsSinceEpoch(
+            cached['timestamp'] as int,
+          ).toUtc().toIso8601String(),
+        })
+        .select('id')
+        .single()
+        .timeout(_networkTimeout);
+    final realId = row['id'] as int;
+    await _cache.replaceBodyWeightId(userId, localId, realId);
+    await _cache.deletePendingOperation(seq);
+  }
+
+  Future<void> _syncUpdateBodyWeight(
+    String userId,
+    int seq,
+    int localId,
+  ) async {
+    final cached = await _cache.getCachedBodyWeightRaw(userId, localId);
+    if (cached == null) {
+      await _cache.deletePendingOperation(seq);
+      return;
+    }
+    final timestampMs = cached['timestamp'] as int;
+    await _client
+        .from('body_weights')
+        .update({
+          'weight': cached['weight'],
+          'unit': cached['unit'],
+          'timestamp': DateTime.fromMillisecondsSinceEpoch(
+            timestampMs,
+          ).toUtc().toIso8601String(),
+        })
+        .eq('user_id', userId)
+        .eq('id', localId)
+        .timeout(_networkTimeout);
+    await _cache.upsertBodyWeight(
+      userId: userId,
+      id: localId,
+      weight: (cached['weight'] as num).toDouble(),
+      unit: cached['unit'] as String,
+      timestampMs: timestampMs,
       pending: false,
     );
     await _cache.deletePendingOperation(seq);

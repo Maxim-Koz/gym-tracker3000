@@ -33,7 +33,7 @@ class LocalCacheDb {
     final path = join(databasesPath, 'gym_tracker_cache.db');
     return await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
           await db.execute(
@@ -42,6 +42,19 @@ class LocalCacheDb {
           await db.execute(
             'ALTER TABLE cached_sets ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0',
           );
+        }
+        if (oldVersion < 3) {
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS cached_body_weights (
+              id INTEGER NOT NULL,
+              user_id TEXT NOT NULL,
+              weight REAL NOT NULL,
+              unit TEXT NOT NULL,
+              timestamp INTEGER NOT NULL,
+              pending INTEGER NOT NULL DEFAULT 0,
+              PRIMARY KEY (id, user_id)
+            )
+          ''');
         }
       },
       onCreate: (db, version) async {
@@ -80,6 +93,17 @@ class LocalCacheDb {
             parent_set_id INTEGER,
             pending INTEGER NOT NULL DEFAULT 0,
             deleted INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (id, user_id)
+          )
+        ''');
+        await db.execute('''
+          CREATE TABLE cached_body_weights (
+            id INTEGER NOT NULL,
+            user_id TEXT NOT NULL,
+            weight REAL NOT NULL,
+            unit TEXT NOT NULL,
+            timestamp INTEGER NOT NULL,
+            pending INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (id, user_id)
           )
         ''');
@@ -198,6 +222,25 @@ class LocalCacheDb {
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
+  Future<void> upsertBodyWeight({
+    required String userId,
+    required int id,
+    required double weight,
+    required String unit,
+    required int timestampMs,
+    required bool pending,
+  }) async {
+    final database = await db;
+    await database.insert('cached_body_weights', {
+      'id': id,
+      'user_id': userId,
+      'weight': weight,
+      'unit': unit,
+      'timestamp': timestampMs,
+      'pending': pending ? 1 : 0,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
   // ---------------------------------------------------------------------
   // Reads (decoded to match the shape DBHelper hands back to screens)
   // ---------------------------------------------------------------------
@@ -232,6 +275,16 @@ class LocalCacheDb {
     copy.remove('user_id');
     copy.remove('pending');
     copy.remove('deleted');
+    return copy;
+  }
+
+  Map<String, dynamic> _decodeBodyWeight(Map<String, dynamic> row) {
+    final copy = Map<String, dynamic>.from(row);
+    copy.remove('user_id');
+    copy.remove('pending');
+    copy['timestamp'] = DateTime.fromMillisecondsSinceEpoch(
+      copy['timestamp'] as int,
+    );
     return copy;
   }
 
@@ -321,6 +374,17 @@ class LocalCacheDb {
       orderBy: 'id ASC',
     );
     return rows.map(_decodeSet).toList();
+  }
+
+  Future<List<Map<String, dynamic>>> getBodyWeights(String userId) async {
+    final database = await db;
+    final rows = await database.query(
+      'cached_body_weights',
+      where: 'user_id = ?',
+      whereArgs: [userId],
+      orderBy: 'timestamp DESC',
+    );
+    return rows.map(_decodeBodyWeight).toList();
   }
 
   // ---------------------------------------------------------------------
@@ -458,6 +522,30 @@ class LocalCacheDb {
     });
   }
 
+  Future<void> refreshBodyWeights(
+    String userId,
+    List<Map<String, dynamic>> remoteRows,
+  ) async {
+    final database = await db;
+    await database.transaction((txn) async {
+      await txn.delete(
+        'cached_body_weights',
+        where: 'user_id = ? AND pending = 0',
+        whereArgs: [userId],
+      );
+      for (final row in remoteRows) {
+        await txn.insert('cached_body_weights', {
+          'id': row['id'],
+          'user_id': userId,
+          'weight': row['weight'],
+          'unit': row['unit'],
+          'timestamp': (row['timestamp'] as DateTime).millisecondsSinceEpoch,
+          'pending': 0,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+    });
+  }
+
   // ---------------------------------------------------------------------
   // Resolving temp ids to real ids once a queued row has synced, cascading
   // the change into any already-cached child rows that pointed at it.
@@ -497,6 +585,20 @@ class LocalCacheDb {
         whereArgs: [userId, tempId],
       );
     });
+  }
+
+  Future<void> replaceBodyWeightId(
+    String userId,
+    int tempId,
+    int realId,
+  ) async {
+    final database = await db;
+    await database.update(
+      'cached_body_weights',
+      {'id': realId, 'pending': 0},
+      where: 'user_id = ? AND id = ?',
+      whereArgs: [userId, tempId],
+    );
   }
 
   Future<void> replaceSetId(String userId, int tempId, int realId) async {
@@ -636,6 +738,20 @@ class LocalCacheDb {
     return rows.isEmpty ? null : rows.first;
   }
 
+  Future<Map<String, dynamic>?> getCachedBodyWeightRaw(
+    String userId,
+    int id,
+  ) async {
+    final database = await db;
+    final rows = await database.query(
+      'cached_body_weights',
+      where: 'user_id = ? AND id = ?',
+      whereArgs: [userId, id],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : rows.first;
+  }
+
   // ---------------------------------------------------------------------
   // Pending operations queue
   // ---------------------------------------------------------------------
@@ -714,6 +830,11 @@ class LocalCacheDb {
       );
       await txn.delete(
         'cached_sets',
+        where: 'user_id = ?',
+        whereArgs: [userId],
+      );
+      await txn.delete(
+        'cached_body_weights',
         where: 'user_id = ?',
         whereArgs: [userId],
       );
