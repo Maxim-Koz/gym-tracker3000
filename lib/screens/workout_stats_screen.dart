@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:gym_tracker/services/db_helper.dart';
 import 'package:gym_tracker/services/stats_service.dart';
+import 'package:gym_tracker/services/weight_format.dart';
 
 class MaxWeightEntry {
   final int exerciseId;
@@ -261,12 +262,7 @@ class _WorkoutStatsScreenState extends State<WorkoutStatsScreen> {
     );
   }
 
-  String _formatWeight(double weight) {
-    if (weight == weight.toInt()) {
-      return weight.toInt().toString();
-    }
-    return weight.toStringAsFixed(1);
-  }
+  String _formatWeight(double weight) => formatWeight(weight);
 
   String _formatDate(DateTime date) {
     final local = date.toLocal();

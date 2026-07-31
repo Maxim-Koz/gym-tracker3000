@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:gym_tracker/services/bodyweight_lookup.dart';
 import 'package:gym_tracker/services/db_helper.dart';
 import 'package:gym_tracker/services/set_entry_utils.dart';
+import 'package:gym_tracker/services/weight_format.dart';
 import 'package:gym_tracker/widgets/edit_log_sheet.dart';
 
 class RecordExerciseScreen extends StatefulWidget {
@@ -19,6 +21,8 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
   String _selectedUnit = 'kg';
   final TextEditingController _noteController = TextEditingController();
   bool _showNoteField = false;
+  bool _includeBodyweight = false;
+  List<Map<String, dynamic>> _bodyWeights = [];
 
   @override
   void didChangeDependencies() {
@@ -33,6 +37,7 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
         _resetRowsForType(_selectedType);
         _noteController.clear();
         _showNoteField = false;
+        _includeBodyweight = false;
       }
       _loadSessions();
     }
@@ -184,8 +189,22 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
       recent.add({'session': session, 'sets': sets});
     }
 
+    // Bodyweight lookups are a nice-to-have annotation on top of the
+    // sessions list, not a hard dependency - if it fails for any reason,
+    // fall back to an empty list rather than let it stop the sessions
+    // preview (which we already have) from ever rendering.
+    List<Map<String, dynamic>> bodyWeights = const [];
+    try {
+      bodyWeights = await DBHelper().getBodyWeights();
+    } catch (e) {
+      debugPrint('Failed to load body weights: $e');
+    }
+
     if (!mounted) return;
-    setState(() => _sessions = recent);
+    setState(() {
+      _sessions = recent;
+      _bodyWeights = bodyWeights;
+    });
   }
 
   Future<void> _saveSession() async {
@@ -221,6 +240,7 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
       exerciseId,
       DateTime.now(),
       note: noteText.isEmpty ? null : noteText,
+      includeBodyweight: _includeBodyweight,
     );
 
     final setEntries = collectValidSetEntries(
@@ -266,6 +286,7 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
     setState(() {
       _noteController.clear();
       _showNoteField = false;
+      _includeBodyweight = false;
     });
     if (!mounted) return;
     ScaffoldMessenger.of(
@@ -464,6 +485,17 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
                                     session['note'] as String,
                                     style: const TextStyle(
                                       fontStyle: FontStyle.italic,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                ],
+                                if (_bodyweightLabelFor(session)
+                                    case final bwLabel?) ...[
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Bodyweight: $bwLabel',
+                                    style: const TextStyle(
+                                      fontSize: 13,
                                       color: Colors.grey,
                                     ),
                                   ),
@@ -719,6 +751,20 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
                       ],
                     ),
                     const SizedBox(height: 8),
+                    const SizedBox(height: 8),
+                    CheckboxListTile(
+                      value: _includeBodyweight,
+                      onChanged: (value) {
+                        setState(() => _includeBodyweight = value ?? false);
+                      },
+                      contentPadding: EdgeInsets.zero,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      title: const Text('Include bodyweight'),
+                      subtitle: const Text(
+                        "Shows this session's weight alongside your last "
+                        'recorded body weight at that time.',
+                      ),
+                    ),
                     if (!_showNoteField)
                       Align(
                         alignment: Alignment.centerLeft,
@@ -773,6 +819,17 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
   String _formatDate(DateTime date) {
     final local = date.toLocal();
     return '${local.day.toString().padLeft(2, '0')}/${local.month.toString().padLeft(2, '0')}/${local.year}';
+  }
+
+  /// If [session] has bodyweight included, returns the last recorded body
+  /// weight at or before that session's date (e.g. "75 kg"), or null if
+  /// bodyweight wasn't included or nothing had been logged yet by then.
+  String? _bodyweightLabelFor(Map<String, dynamic> session) {
+    if (session['include_bodyweight'] != true) return null;
+    final date = session['timestamp'] as DateTime;
+    final entry = findBodyWeightAtOrBefore(date, _bodyWeights);
+    if (entry == null) return null;
+    return formatBodyWeightEntry(entry);
   }
 
   List<Widget> _buildSetRows(List<Map<String, dynamic>> sets) {
@@ -842,7 +899,7 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
     if (weight == null) {
       weightText = '-';
     } else if (weight is double) {
-      weightText = weight.toStringAsFixed(1);
+      weightText = formatWeight(weight);
     } else {
       weightText = weight.toString();
     }

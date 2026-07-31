@@ -1,6 +1,8 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:gym_tracker/services/bodyweight_lookup.dart';
 import 'package:gym_tracker/services/db_helper.dart';
+import 'package:gym_tracker/services/weight_format.dart';
 import 'package:gym_tracker/widgets/edit_log_sheet.dart';
 import 'package:gym_tracker/widgets/weight_progress_chart.dart';
 
@@ -20,6 +22,7 @@ class _ExerciseHistoryScreenState extends State<ExerciseHistoryScreen> {
   Map<String, dynamic>? _exercise;
   _ViewMode _viewMode = _ViewMode.log;
   _TimeRange _timeRange = _TimeRange.oneYear;
+  List<Map<String, dynamic>> _bodyWeights = [];
 
   @override
   void didChangeDependencies() {
@@ -41,7 +44,21 @@ class _ExerciseHistoryScreenState extends State<ExerciseHistoryScreen> {
       final sets = await DBHelper().getSetsForSession(session['id'] as int);
       enriched.add({'session': session, 'sets': sets});
     }
-    setState(() => _sessions = enriched);
+    // Bodyweight lookups are a nice-to-have annotation on top of the
+    // sessions list, not a hard dependency - if it fails for any reason,
+    // fall back to an empty list rather than let it stop the rest of this
+    // screen from ever rendering.
+    List<Map<String, dynamic>> bodyWeights = const [];
+    try {
+      bodyWeights = await DBHelper().getBodyWeights();
+    } catch (e) {
+      debugPrint('Failed to load body weights: $e');
+    }
+    if (!mounted) return;
+    setState(() {
+      _sessions = enriched;
+      _bodyWeights = bodyWeights;
+    });
   }
 
   @override
@@ -171,6 +188,13 @@ class _ExerciseHistoryScreenState extends State<ExerciseHistoryScreen> {
                       ),
                     ),
                   ],
+                  if (_bodyweightLabelFor(session) case final bwLabel?) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'Bodyweight: $bwLabel',
+                      style: const TextStyle(fontSize: 13, color: Colors.grey),
+                    ),
+                  ],
                   const SizedBox(height: 4),
                   Text(
                     '${sets.where((s) => s['parent_set_id'] == null).length} set${sets.where((s) => s['parent_set_id'] == null).length == 1 ? '' : 's'}',
@@ -225,7 +249,13 @@ class _ExerciseHistoryScreenState extends State<ExerciseHistoryScreen> {
         cutoff = now.subtract(const Duration(days: 14));
         break;
       case _TimeRange.oneYear:
-        cutoff = now.subtract(const Duration(days: 365));
+        // Calendar year-ago, not a fixed 365-day offset - a flat
+        // Duration(days: 365) undercounts by a day for any 12-month
+        // window that happens to include a Feb 29, quietly dropping the
+        // oldest day's data in leap years. DateTime handles the Feb 29
+        // "now" edge case itself by rolling over to Mar 1 in a
+        // non-leap previous year.
+        cutoff = DateTime(now.year - 1, now.month, now.day);
         break;
       case _TimeRange.all:
         cutoff = null;
@@ -260,6 +290,17 @@ class _ExerciseHistoryScreenState extends State<ExerciseHistoryScreen> {
   String _formatDate(DateTime date) {
     final local = date.toLocal();
     return '${local.day.toString().padLeft(2, '0')}/${local.month.toString().padLeft(2, '0')}/${local.year}';
+  }
+
+  /// If [session] has bodyweight included, returns the last recorded body
+  /// weight at or before that session's date (e.g. "75 kg"), or null if
+  /// bodyweight wasn't included or nothing had been logged yet by then.
+  String? _bodyweightLabelFor(Map<String, dynamic> session) {
+    if (session['include_bodyweight'] != true) return null;
+    final date = session['timestamp'] as DateTime;
+    final entry = findBodyWeightAtOrBefore(date, _bodyWeights);
+    if (entry == null) return null;
+    return formatBodyWeightEntry(entry);
   }
 
   // Builds the widgets for a session's sets. If any set carries a
@@ -332,7 +373,7 @@ class _ExerciseHistoryScreenState extends State<ExerciseHistoryScreen> {
     if (weight == null) {
       weightText = '-';
     } else if (weight is double) {
-      weightText = weight.toStringAsFixed(1);
+      weightText = formatWeight(weight);
     } else {
       weightText = weight.toString();
     }

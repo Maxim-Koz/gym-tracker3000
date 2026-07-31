@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:gym_tracker/services/weight_format.dart';
 
 class BodyWeightPoint {
   const BodyWeightPoint({required this.date, required this.weightKg});
@@ -58,12 +59,7 @@ class _BodyWeightChartState extends State<BodyWeightChart> {
     return '${local.day} ${months[local.month - 1]} ${local.year}';
   }
 
-  String _formatWeight(double weightKg) {
-    if (weightKg == weightKg.roundToDouble()) {
-      return '${weightKg.toInt()} kg';
-    }
-    return '${weightKg.toStringAsFixed(1)} kg';
-  }
+  String _formatWeight(double weightKg) => '${formatWeight(weightKg)} kg';
 
   @override
   Widget build(BuildContext context) {
@@ -75,7 +71,7 @@ class _BodyWeightChartState extends State<BodyWeightChart> {
       return Center(
         child: Text(
           'Log another entry to see a trend.\n'
-          'Latest: ${points.first.weightKg.toStringAsFixed(1)} kg',
+          'Latest: ${formatWeight(points.first.weightKg)} kg',
           textAlign: TextAlign.center,
         ),
       );

@@ -28,19 +28,45 @@ class LocalCacheDb {
     return _db!;
   }
 
+  /// Adds [column] to [table] only if it doesn't already exist. Using this
+  /// instead of a bare ALTER TABLE makes migrations idempotent/self-healing
+  /// - safe to re-run even if a previous migration step already applied
+  /// (or half-applied) on a given device, which is what protects us from
+  /// "duplicate column" errors on re-run and from silently-stuck upgrades
+  /// where the file's version number moved on without the schema actually
+  /// matching.
+  Future<void> _ensureColumn(
+    DatabaseExecutor db,
+    String table,
+    String column,
+    String definition,
+  ) async {
+    final columns = await db.rawQuery('PRAGMA table_info($table)');
+    final exists = columns.any((c) => c['name'] == column);
+    if (!exists) {
+      await db.execute('ALTER TABLE $table ADD COLUMN $column $definition');
+    }
+  }
+
   Future<Database> _initDb() async {
     final databasesPath = await getDatabasesPath();
     final path = join(databasesPath, 'gym_tracker_cache.db');
     return await openDatabase(
       path,
-      version: 3,
+      version: 7,
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
-          await db.execute(
-            'ALTER TABLE cached_sessions ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0',
+          await _ensureColumn(
+            db,
+            'cached_sessions',
+            'deleted',
+            'INTEGER NOT NULL DEFAULT 0',
           );
-          await db.execute(
-            'ALTER TABLE cached_sets ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0',
+          await _ensureColumn(
+            db,
+            'cached_sets',
+            'deleted',
+            'INTEGER NOT NULL DEFAULT 0',
           );
         }
         if (oldVersion < 3) {
@@ -56,6 +82,34 @@ class LocalCacheDb {
             )
           ''');
         }
+        if (oldVersion < 4) {
+          await _ensureColumn(
+            db,
+            'cached_sessions',
+            'include_bodyweight',
+            'INTEGER NOT NULL DEFAULT 0',
+          );
+        }
+        if (oldVersion < 6) {
+          // Covers both the original v5 migration and devices whose file
+          // is already stamped at version 5 without this column actually
+          // having been added (see _ensureColumn above) - re-running this
+          // idempotently is always safe.
+          await _ensureColumn(
+            db,
+            'cached_body_weights',
+            'deleted',
+            'INTEGER NOT NULL DEFAULT 0',
+          );
+        }
+        if (oldVersion < 7) {
+          await _ensureColumn(
+            db,
+            'cached_exercises',
+            'deleted',
+            'INTEGER NOT NULL DEFAULT 0',
+          );
+        }
       },
       onCreate: (db, version) async {
         await db.execute('''
@@ -66,6 +120,7 @@ class LocalCacheDb {
             type TEXT NOT NULL,
             data TEXT,
             pending INTEGER NOT NULL DEFAULT 0,
+            deleted INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (id, user_id)
           )
         ''');
@@ -76,6 +131,7 @@ class LocalCacheDb {
             exercise_id INTEGER NOT NULL,
             timestamp INTEGER NOT NULL,
             note TEXT,
+            include_bodyweight INTEGER NOT NULL DEFAULT 0,
             pending INTEGER NOT NULL DEFAULT 0,
             deleted INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (id, user_id)
@@ -104,6 +160,7 @@ class LocalCacheDb {
             unit TEXT NOT NULL,
             timestamp INTEGER NOT NULL,
             pending INTEGER NOT NULL DEFAULT 0,
+            deleted INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (id, user_id)
           )
         ''');
@@ -162,6 +219,7 @@ class LocalCacheDb {
     required String type,
     Map<String, dynamic>? data,
     required bool pending,
+    bool deleted = false,
   }) async {
     final database = await db;
     await database.insert('cached_exercises', {
@@ -171,6 +229,7 @@ class LocalCacheDb {
       'type': type,
       'data': data == null ? null : jsonEncode(data),
       'pending': pending ? 1 : 0,
+      'deleted': deleted ? 1 : 0,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
@@ -180,6 +239,7 @@ class LocalCacheDb {
     required int exerciseId,
     required int timestampMs,
     String? note,
+    bool includeBodyweight = false,
     required bool pending,
     bool deleted = false,
   }) async {
@@ -190,6 +250,7 @@ class LocalCacheDb {
       'exercise_id': exerciseId,
       'timestamp': timestampMs,
       'note': note,
+      'include_bodyweight': includeBodyweight ? 1 : 0,
       'pending': pending ? 1 : 0,
       'deleted': deleted ? 1 : 0,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
@@ -229,6 +290,7 @@ class LocalCacheDb {
     required String unit,
     required int timestampMs,
     required bool pending,
+    bool deleted = false,
   }) async {
     final database = await db;
     await database.insert('cached_body_weights', {
@@ -238,6 +300,7 @@ class LocalCacheDb {
       'unit': unit,
       'timestamp': timestampMs,
       'pending': pending ? 1 : 0,
+      'deleted': deleted ? 1 : 0,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
@@ -249,6 +312,7 @@ class LocalCacheDb {
     final copy = Map<String, dynamic>.from(row);
     copy.remove('user_id');
     copy.remove('pending');
+    copy.remove('deleted');
     if (copy['data'] != null) {
       try {
         copy['data'] = jsonDecode(copy['data'] as String);
@@ -267,6 +331,7 @@ class LocalCacheDb {
     copy['timestamp'] = DateTime.fromMillisecondsSinceEpoch(
       copy['timestamp'] as int,
     );
+    copy['include_bodyweight'] = (copy['include_bodyweight'] as int? ?? 0) == 1;
     return copy;
   }
 
@@ -282,6 +347,7 @@ class LocalCacheDb {
     final copy = Map<String, dynamic>.from(row);
     copy.remove('user_id');
     copy.remove('pending');
+    copy.remove('deleted');
     copy['timestamp'] = DateTime.fromMillisecondsSinceEpoch(
       copy['timestamp'] as int,
     );
@@ -292,7 +358,7 @@ class LocalCacheDb {
     final database = await db;
     final rows = await database.query(
       'cached_exercises',
-      where: 'user_id = ?',
+      where: 'user_id = ? AND deleted = 0',
       whereArgs: [userId],
       orderBy: 'pending DESC, id DESC',
     );
@@ -303,7 +369,7 @@ class LocalCacheDb {
     final database = await db;
     final rows = await database.query(
       'cached_exercises',
-      where: 'user_id = ? AND id = ?',
+      where: 'user_id = ? AND id = ? AND deleted = 0',
       whereArgs: [userId, id],
       limit: 1,
     );
@@ -318,7 +384,7 @@ class LocalCacheDb {
     final database = await db;
     final rows = await database.query(
       'cached_exercises',
-      where: 'user_id = ? AND name = ?',
+      where: 'user_id = ? AND name = ? AND deleted = 0',
       whereArgs: [userId, name],
       limit: 1,
     );
@@ -380,7 +446,7 @@ class LocalCacheDb {
     final database = await db;
     final rows = await database.query(
       'cached_body_weights',
-      where: 'user_id = ?',
+      where: 'user_id = ? AND deleted = 0',
       whereArgs: [userId],
       orderBy: 'timestamp DESC',
     );
@@ -413,6 +479,7 @@ class LocalCacheDb {
           'type': row['type'],
           'data': row['data'] == null ? null : jsonEncode(row['data']),
           'pending': 0,
+          'deleted': 0,
         }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
     });
@@ -437,6 +504,7 @@ class LocalCacheDb {
           'exercise_id': row['exercise_id'],
           'timestamp': (row['timestamp'] as DateTime).millisecondsSinceEpoch,
           'note': row['note'],
+          'include_bodyweight': (row['include_bodyweight'] == true) ? 1 : 0,
           'pending': 0,
         }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
@@ -461,6 +529,7 @@ class LocalCacheDb {
           'exercise_id': row['exercise_id'],
           'timestamp': (row['timestamp'] as DateTime).millisecondsSinceEpoch,
           'note': row['note'],
+          'include_bodyweight': (row['include_bodyweight'] == true) ? 1 : 0,
           'pending': 0,
         }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
@@ -688,6 +757,44 @@ class LocalCacheDb {
     final database = await db;
     await database.delete(
       'cached_sessions',
+      where: 'user_id = ? AND id = ?',
+      whereArgs: [userId, id],
+    );
+  }
+
+  Future<void> softDeleteExercise(String userId, int id) async {
+    final database = await db;
+    await database.update(
+      'cached_exercises',
+      {'deleted': 1, 'pending': 1},
+      where: 'user_id = ? AND id = ?',
+      whereArgs: [userId, id],
+    );
+  }
+
+  Future<void> hardDeleteExercise(String userId, int id) async {
+    final database = await db;
+    await database.delete(
+      'cached_exercises',
+      where: 'user_id = ? AND id = ?',
+      whereArgs: [userId, id],
+    );
+  }
+
+  Future<void> softDeleteBodyWeight(String userId, int id) async {
+    final database = await db;
+    await database.update(
+      'cached_body_weights',
+      {'deleted': 1, 'pending': 1},
+      where: 'user_id = ? AND id = ?',
+      whereArgs: [userId, id],
+    );
+  }
+
+  Future<void> hardDeleteBodyWeight(String userId, int id) async {
+    final database = await db;
+    await database.delete(
+      'cached_body_weights',
       where: 'user_id = ? AND id = ?',
       whereArgs: [userId, id],
     );

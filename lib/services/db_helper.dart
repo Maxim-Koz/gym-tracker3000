@@ -376,6 +376,126 @@ class DBHelper {
     await refreshPendingSyncCount();
   }
 
+  /// Renames an exercise, preserving its type and any other data already
+  /// stored for it.
+  Future<void> renameExercise(int exerciseId, String newName) async {
+    final userId = _userId;
+    final cached = await _cache.getCachedExerciseRaw(userId, exerciseId);
+    if (cached == null) return;
+
+    final rawData = cached['data'];
+    final data = rawData == null
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(jsonDecode(rawData as String) as Map);
+    final type = cached['type'] as String;
+
+    if (_isTemp(exerciseId)) {
+      // Not synced yet - the queued 'insert_exercise' operation reads the
+      // cache's current name at sync time, so no new op is needed here.
+      await _cache.upsertExercise(
+        userId: userId,
+        id: exerciseId,
+        name: newName,
+        type: type,
+        data: data,
+        pending: true,
+      );
+      return;
+    }
+
+    if (await _hasNetwork()) {
+      try {
+        await _client
+            .from('exercises')
+            .update({'name': newName})
+            .eq('user_id', userId)
+            .eq('id', exerciseId)
+            .timeout(_networkTimeout);
+        await _cache.upsertExercise(
+          userId: userId,
+          id: exerciseId,
+          name: newName,
+          type: type,
+          data: data,
+          pending: false,
+        );
+        return;
+      } catch (e) {
+        if (!_looksOffline(e)) rethrow;
+      }
+    }
+
+    await _cache.upsertExercise(
+      userId: userId,
+      id: exerciseId,
+      name: newName,
+      type: type,
+      data: data,
+      pending: true,
+    );
+    final alreadyQueued = await _cache.hasPendingOperation(
+      userId: userId,
+      opType: 'update_exercise',
+      localId: exerciseId,
+    );
+    if (!alreadyQueued) {
+      await _cache.enqueueOperation(
+        userId: userId,
+        opType: 'update_exercise',
+        localId: exerciseId,
+      );
+    }
+    await refreshPendingSyncCount();
+  }
+
+  /// Deletes an exercise along with every session (and set) logged under
+  /// it. Cascades locally the same way [deleteSession] cascades to sets,
+  /// so this works correctly regardless of how much of that history has
+  /// synced yet.
+  Future<void> deleteExercise(int exerciseId) async {
+    final userId = _userId;
+    final sessions = await _cache.getSessionsForExercise(userId, exerciseId);
+    for (final session in sessions) {
+      await deleteSession(session['id'] as int);
+    }
+
+    if (_isTemp(exerciseId)) {
+      await _cache.hardDeleteExercise(userId, exerciseId);
+      return;
+    }
+
+    if (await _hasNetwork()) {
+      try {
+        await _client
+            .from('exercises')
+            .delete()
+            .eq('user_id', userId)
+            .eq('id', exerciseId)
+            .timeout(_networkTimeout);
+        await _cache.hardDeleteExercise(userId, exerciseId);
+        await refreshPendingSyncCount();
+        return;
+      } catch (e) {
+        if (!_looksOffline(e)) rethrow;
+      }
+    }
+
+    await _cache.softDeleteExercise(userId, exerciseId);
+    final alreadyQueued = await _cache.hasPendingOperation(
+      userId: userId,
+      opType: 'delete_exercise',
+      localId: exerciseId,
+    );
+    if (!alreadyQueued) {
+      await _cache.enqueueOperation(
+        userId: userId,
+        opType: 'delete_exercise',
+        localId: exerciseId,
+      );
+    }
+    await refreshPendingSyncCount();
+  }
+
   // -------------------------------------------------------------------
   // Body weight
   // -------------------------------------------------------------------
@@ -544,6 +664,46 @@ class DBHelper {
     await refreshPendingSyncCount();
   }
 
+  Future<void> deleteBodyWeight(int id) async {
+    final userId = _userId;
+
+    if (_isTemp(id)) {
+      await _cache.hardDeleteBodyWeight(userId, id);
+      return;
+    }
+
+    if (await _hasNetwork()) {
+      try {
+        await _client
+            .from('body_weights')
+            .delete()
+            .eq('user_id', userId)
+            .eq('id', id)
+            .timeout(_networkTimeout);
+        await _cache.hardDeleteBodyWeight(userId, id);
+        await refreshPendingSyncCount();
+        return;
+      } catch (e) {
+        if (!_looksOffline(e)) rethrow;
+      }
+    }
+
+    await _cache.softDeleteBodyWeight(userId, id);
+    final alreadyQueued = await _cache.hasPendingOperation(
+      userId: userId,
+      opType: 'delete_body_weight',
+      localId: id,
+    );
+    if (!alreadyQueued) {
+      await _cache.enqueueOperation(
+        userId: userId,
+        opType: 'delete_body_weight',
+        localId: id,
+      );
+    }
+    await refreshPendingSyncCount();
+  }
+
   // -------------------------------------------------------------------
   // Sessions
   // -------------------------------------------------------------------
@@ -552,10 +712,17 @@ class DBHelper {
     int exerciseId,
     DateTime timestamp, {
     String? note,
+    bool includeBodyweight = false,
   }) async {
     final userId = _userId;
     if (_isTemp(exerciseId)) {
-      return _queueSessionInsert(userId, exerciseId, timestamp, note);
+      return _queueSessionInsert(
+        userId,
+        exerciseId,
+        timestamp,
+        note,
+        includeBodyweight,
+      );
     }
     if (await _hasNetwork()) {
       try {
@@ -566,6 +733,7 @@ class DBHelper {
               'exercise_id': exerciseId,
               'timestamp': timestamp.toUtc().toIso8601String(),
               'note': note,
+              'include_bodyweight': includeBodyweight,
             })
             .select('id')
             .single()
@@ -577,6 +745,7 @@ class DBHelper {
           exerciseId: exerciseId,
           timestampMs: timestamp.millisecondsSinceEpoch,
           note: note,
+          includeBodyweight: includeBodyweight,
           pending: false,
         );
         return id;
@@ -584,7 +753,13 @@ class DBHelper {
         if (!_looksOffline(e)) rethrow;
       }
     }
-    return _queueSessionInsert(userId, exerciseId, timestamp, note);
+    return _queueSessionInsert(
+      userId,
+      exerciseId,
+      timestamp,
+      note,
+      includeBodyweight,
+    );
   }
 
   Future<int> _queueSessionInsert(
@@ -592,6 +767,7 @@ class DBHelper {
     int exerciseId,
     DateTime timestamp,
     String? note,
+    bool includeBodyweight,
   ) async {
     final tempId = await _cache.nextTempId(userId);
     await _cache.upsertSession(
@@ -600,6 +776,7 @@ class DBHelper {
       exerciseId: exerciseId,
       timestampMs: timestamp.millisecondsSinceEpoch,
       note: note,
+      includeBodyweight: includeBodyweight,
       pending: true,
     );
     await _cache.enqueueOperation(
@@ -670,6 +847,7 @@ class DBHelper {
     int sessionId, {
     Object? note = _unset,
     DateTime? timestamp,
+    bool? includeBodyweight,
   }) async {
     final userId = _userId;
     final cached = await _cache.getCachedSessionRaw(userId, sessionId);
@@ -680,6 +858,8 @@ class DBHelper {
         : note as String?;
     final newTimestampMs =
         timestamp?.millisecondsSinceEpoch ?? cached['timestamp'] as int;
+    final newIncludeBodyweight =
+        includeBodyweight ?? (cached['include_bodyweight'] as int? ?? 0) == 1;
 
     if (_isTemp(sessionId)) {
       await _cache.upsertSession(
@@ -688,6 +868,7 @@ class DBHelper {
         exerciseId: exerciseId,
         timestampMs: newTimestampMs,
         note: newNote,
+        includeBodyweight: newIncludeBodyweight,
         pending: true,
       );
       return;
@@ -702,6 +883,7 @@ class DBHelper {
               'timestamp': DateTime.fromMillisecondsSinceEpoch(
                 newTimestampMs,
               ).toUtc().toIso8601String(),
+              'include_bodyweight': newIncludeBodyweight,
             })
             .eq('user_id', userId)
             .eq('id', sessionId)
@@ -712,6 +894,7 @@ class DBHelper {
           exerciseId: exerciseId,
           timestampMs: newTimestampMs,
           note: newNote,
+          includeBodyweight: newIncludeBodyweight,
           pending: false,
         );
         return;
@@ -726,6 +909,7 @@ class DBHelper {
       exerciseId: exerciseId,
       timestampMs: newTimestampMs,
       note: newNote,
+      includeBodyweight: newIncludeBodyweight,
       pending: true,
     );
     final alreadyQueued = await _cache.hasPendingOperation(
@@ -1136,6 +1320,9 @@ class DBHelper {
             case 'update_body_weight':
               await _syncUpdateBodyWeight(userId, seq, localId);
               break;
+            case 'delete_body_weight':
+              await _syncDeleteBodyWeight(userId, seq, localId);
+              break;
             case 'insert_session':
               final resolved = await _syncSession(userId, seq, localId);
               if (!resolved) return; // parent not synced yet, retry later
@@ -1146,6 +1333,9 @@ class DBHelper {
               break;
             case 'update_exercise':
               await _syncUpdateExercise(userId, seq, localId);
+              break;
+            case 'delete_exercise':
+              await _syncDeleteExercise(userId, seq, localId);
               break;
             case 'update_session':
               await _syncUpdateSession(userId, seq, localId);
@@ -1209,20 +1399,32 @@ class DBHelper {
     final data = rawData == null
         ? <String, dynamic>{}
         : jsonDecode(rawData as String) as Map<String, dynamic>;
+    final name = cached['name'] as String;
     await _client
         .from('exercises')
-        .update({'data': data})
+        .update({'name': name, 'data': data})
         .eq('user_id', userId)
         .eq('id', localId)
         .timeout(_networkTimeout);
     await _cache.upsertExercise(
       userId: userId,
       id: localId,
-      name: cached['name'] as String,
+      name: name,
       type: cached['type'] as String,
       data: data,
       pending: false,
     );
+    await _cache.deletePendingOperation(seq);
+  }
+
+  Future<void> _syncDeleteExercise(String userId, int seq, int localId) async {
+    await _client
+        .from('exercises')
+        .delete()
+        .eq('user_id', userId)
+        .eq('id', localId)
+        .timeout(_networkTimeout);
+    await _cache.hardDeleteExercise(userId, localId);
     await _cache.deletePendingOperation(seq);
   }
 
@@ -1284,6 +1486,21 @@ class DBHelper {
     await _cache.deletePendingOperation(seq);
   }
 
+  Future<void> _syncDeleteBodyWeight(
+    String userId,
+    int seq,
+    int localId,
+  ) async {
+    await _client
+        .from('body_weights')
+        .delete()
+        .eq('user_id', userId)
+        .eq('id', localId)
+        .timeout(_networkTimeout);
+    await _cache.hardDeleteBodyWeight(userId, localId);
+    await _cache.deletePendingOperation(seq);
+  }
+
   Future<bool> _syncSession(String userId, int seq, int localId) async {
     final cached = await _cache.getCachedSessionRaw(userId, localId);
     if (cached == null) {
@@ -1302,6 +1519,8 @@ class DBHelper {
             cached['timestamp'] as int,
           ).toUtc().toIso8601String(),
           'note': cached['note'],
+          'include_bodyweight':
+              (cached['include_bodyweight'] as int? ?? 0) == 1,
         })
         .select('id')
         .single()
@@ -1351,6 +1570,7 @@ class DBHelper {
       return;
     }
     final timestampMs = cached['timestamp'] as int;
+    final includeBodyweight = (cached['include_bodyweight'] as int? ?? 0) == 1;
     await _client
         .from('sessions')
         .update({
@@ -1358,6 +1578,7 @@ class DBHelper {
           'timestamp': DateTime.fromMillisecondsSinceEpoch(
             timestampMs,
           ).toUtc().toIso8601String(),
+          'include_bodyweight': includeBodyweight,
         })
         .eq('user_id', userId)
         .eq('id', localId)
@@ -1368,6 +1589,7 @@ class DBHelper {
       exerciseId: cached['exercise_id'] as int,
       timestampMs: timestampMs,
       note: cached['note'] as String?,
+      includeBodyweight: includeBodyweight,
       pending: false,
       deleted: (cached['deleted'] as int? ?? 0) == 1,
     );

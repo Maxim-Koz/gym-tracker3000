@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:gym_tracker/services/weight_format.dart';
 
 /// A single point on the weight-progress graph: a session date paired with
 /// the heaviest weight (in kg) logged that session.
@@ -10,10 +11,11 @@ class WeightPoint {
 }
 
 /// Plots [points] as a simple line chart: time on the x-axis, weight on the
-/// y-axis (always starting at 0), points connected with straight lines.
-/// Long-pressing (and dragging while held) shows the date and weight for the
-/// nearest point. Built with a CustomPainter so no charting package
-/// dependency is required.
+/// y-axis (scaled to the data's actual min/max, so negative weights plot
+/// correctly), points connected with straight lines. Long-pressing (and
+/// dragging while held) shows the date and weight for the nearest point.
+/// Built with a CustomPainter so no charting package dependency is
+/// required.
 class WeightProgressChart extends StatefulWidget {
   final List<WeightPoint> points;
 
@@ -50,7 +52,7 @@ class _WeightProgressChartState extends State<WeightProgressChart> {
       return Center(
         child: Text(
           'Only one data point in this range\n'
-          '(${p.weightKg.toStringAsFixed(1)} kg on '
+          '(${formatWeight(p.weightKg)} kg on '
           '${p.date.day}/${p.date.month}/${p.date.year})',
           textAlign: TextAlign.center,
         ),
@@ -92,9 +94,12 @@ class _WeightProgressChartState extends State<WeightProgressChart> {
 }
 
 /// Shared coordinate mapping between the painter and the gesture handler, so
-/// hit-testing always agrees with what's drawn. The y-axis always starts at
-/// 0 kg; the top of the chart is the max logged weight plus a little
-/// headroom.
+/// hit-testing always agrees with what's drawn. The y-axis spans from the
+/// lowest to the highest logged weight (with a little headroom on each
+/// end) rather than always starting at 0 kg, so negative weights - e.g.
+/// assisted pull-ups/dips logged as negative to mean "this much
+/// assistance" - plot correctly instead of collapsing or falling off the
+/// bottom of the chart.
 class _ChartGeometry {
   final List<WeightPoint> points;
   final Size size;
@@ -109,6 +114,7 @@ class _ChartGeometry {
   late final DateTime minDate;
   late final DateTime maxDate;
   late final int dateRangeMs;
+  late final double minWeight;
   late final double maxWeight;
 
   _ChartGeometry({required this.points, required this.size}) {
@@ -118,23 +124,48 @@ class _ChartGeometry {
     maxDate = points.last.date;
     dateRangeMs = maxDate.difference(minDate).inMilliseconds;
 
-    final rawMax = points
-        .map((p) => p.weightKg)
-        .reduce((a, b) => a > b ? a : b);
-    maxWeight = rawMax <= 0 ? 10 : rawMax * 1.15;
+    final weights = points.map((p) => p.weightKg).toList();
+    final rawMin = weights.reduce((a, b) => a < b ? a : b);
+    final rawMax = weights.reduce((a, b) => a > b ? a : b);
+
+    if (rawMin == rawMax) {
+      // Flat line: pad symmetrically so it doesn't hug an edge. Fall back
+      // to a fixed pad around 0 so a single 0 kg point isn't degenerate.
+      final pad = rawMin == 0 ? 1.0 : rawMin.abs() * 0.15;
+      minWeight = rawMin - pad;
+      maxWeight = rawMax + pad;
+    } else {
+      final pad = (rawMax - rawMin) * 0.15;
+      minWeight = rawMin - pad;
+      maxWeight = rawMax + pad;
+    }
   }
 
   Offset offsetFor(WeightPoint p) {
     final xFraction = dateRangeMs == 0
         ? 0.5
         : p.date.difference(minDate).inMilliseconds / dateRangeMs;
-    final yFraction = maxWeight == 0 ? 0.0 : p.weightKg / maxWeight;
+    final weightRange = maxWeight - minWeight;
+    final yFraction = weightRange == 0
+        ? 0.5
+        : (p.weightKg - minWeight) / weightRange;
     final safeChartWidth = chartWidth < 0 ? 0.0 : chartWidth;
     final safeChartHeight = chartHeight < 0 ? 0.0 : chartHeight;
     return Offset(
       leftPadding + xFraction * safeChartWidth,
       topPadding + (1 - yFraction) * safeChartHeight,
     );
+  }
+
+  /// Y position of the 0 kg line, or null if 0 isn't within the plotted
+  /// range (e.g. every set that session was positive-weighted).
+  double? get zeroLineY {
+    if (minWeight > 0 || maxWeight < 0) return null;
+    final weightRange = maxWeight - minWeight;
+    if (weightRange == 0) return null;
+    final yFraction = (0 - minWeight) / weightRange;
+    final safeChartHeight = chartHeight < 0 ? 0.0 : chartHeight;
+    return topPadding + (1 - yFraction) * safeChartHeight;
   }
 
   int nearestIndex(double dx) {
@@ -189,7 +220,9 @@ class _WeightChartPainter extends CustomPainter {
       ..strokeWidth = 1;
     final labelStyle = TextStyle(color: axisColor, fontSize: 10);
 
-    // Horizontal grid lines + y-axis (weight) labels. Bottom line is 0 kg.
+    // Horizontal grid lines + y-axis (weight) labels, spanning from
+    // minWeight (bottom) to maxWeight (top) - not necessarily 0 at the
+    // bottom, since weights can be negative (e.g. assisted pull-ups).
     for (var i = 0; i <= _gridLines; i++) {
       final fraction = i / _gridLines;
       final y = topPadding + fraction * chartHeight;
@@ -198,7 +231,9 @@ class _WeightChartPainter extends CustomPainter {
         Offset(leftPadding + chartWidth, y),
         gridPaint,
       );
-      final weightValue = geometry.maxWeight * (1 - fraction);
+      final weightValue =
+          geometry.maxWeight -
+          fraction * (geometry.maxWeight - geometry.minWeight);
       final tp = TextPainter(
         text: TextSpan(
           text: '${weightValue.toStringAsFixed(1)} kg',
@@ -207,6 +242,21 @@ class _WeightChartPainter extends CustomPainter {
         textDirection: TextDirection.ltr,
       )..layout();
       tp.paint(canvas, Offset(leftPadding - tp.width - 6, y - tp.height / 2));
+    }
+
+    // If 0 falls within the plotted range (common once negative/assisted
+    // weights are involved), draw a distinct line for it so it's easy to
+    // tell which points are above vs. below bodyweight-assisted.
+    final zeroY = geometry.zeroLineY;
+    if (zeroY != null) {
+      final zeroPaint = Paint()
+        ..color = axisColor.withOpacity(0.6)
+        ..strokeWidth = 1.2;
+      canvas.drawLine(
+        Offset(leftPadding, zeroY),
+        Offset(leftPadding + chartWidth, zeroY),
+        zeroPaint,
+      );
     }
 
     // X-axis (date) labels: first, middle, last point.
@@ -273,7 +323,7 @@ class _WeightChartPainter extends CustomPainter {
       );
 
       final dateLabel = '${p.date.day}/${p.date.month}/${p.date.year}';
-      final weightLabel = '${p.weightKg.toStringAsFixed(1)} kg';
+      final weightLabel = '${formatWeight(p.weightKg)} kg';
 
       final dateSpan = TextPainter(
         text: TextSpan(
