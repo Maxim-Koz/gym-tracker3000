@@ -42,9 +42,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   child: ListTile(
                     title: Text(exercise['name'] ?? ''),
                     trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                    onTap: () => Navigator.of(
-                      context,
-                    ).pushNamed('/history/exercise', arguments: exercise),
+                    onTap: () async {
+                      await Navigator.of(
+                        context,
+                      ).pushNamed('/history/exercise', arguments: exercise);
+                      if (mounted) _loadExercises();
+                    },
                   ),
                 );
               },

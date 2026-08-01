@@ -48,7 +48,6 @@ class EditLogSheet extends StatefulWidget {
 class _EditLogSheetState extends State<EditLogSheet> {
   late final TextEditingController _noteController;
   late DateTime _date;
-  late bool _includeBodyweight;
   late final List<int> _originalTopLevelSetIds;
 
   final List<Map<String, dynamic>> _normalRows = [];
@@ -64,7 +63,6 @@ class _EditLogSheetState extends State<EditLogSheet> {
       text: widget.session['note'] as String? ?? '',
     );
     _date = widget.session['timestamp'] as DateTime;
-    _includeBodyweight = widget.session['include_bodyweight'] == true;
     _originalTopLevelSetIds = widget.sets
         .where((s) => s['parent_set_id'] == null)
         .map((s) => s['id'] as int)
@@ -319,7 +317,6 @@ class _EditLogSheetState extends State<EditLogSheet> {
         _sessionId,
         note: noteText.isEmpty ? null : noteText,
         timestamp: _date,
-        includeBodyweight: _includeBodyweight,
       );
 
       // Simplest, most reliable way to reconcile arbitrary edits (type
@@ -446,19 +443,6 @@ class _EditLogSheetState extends State<EditLogSheet> {
                         decoration: const InputDecoration(
                           labelText: 'Note',
                           border: OutlineInputBorder(),
-                        ),
-                      ),
-                      CheckboxListTile(
-                        value: _includeBodyweight,
-                        onChanged: (value) {
-                          setState(() => _includeBodyweight = value ?? false);
-                        },
-                        contentPadding: EdgeInsets.zero,
-                        controlAffinity: ListTileControlAffinity.leading,
-                        title: const Text('Include bodyweight'),
-                        subtitle: const Text(
-                          "Shows this session's weight alongside your last "
-                          'recorded body weight at that time.',
                         ),
                       ),
                       const SizedBox(height: 16),

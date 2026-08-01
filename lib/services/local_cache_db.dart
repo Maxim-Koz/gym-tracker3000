@@ -53,7 +53,7 @@ class LocalCacheDb {
     final path = join(databasesPath, 'gym_tracker_cache.db');
     return await openDatabase(
       path,
-      version: 7,
+      version: 8,
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
           await _ensureColumn(
@@ -110,6 +110,19 @@ class LocalCacheDb {
             'INTEGER NOT NULL DEFAULT 0',
           );
         }
+        if (oldVersion < 8) {
+          // include_bodyweight moved from being a per-session flag to a
+          // per-exercise one - it now lives on cached_exercises instead.
+          // The old cached_sessions.include_bodyweight column, if present,
+          // is simply left in place unused; sqlite can't drop columns
+          // cheaply and nothing reads it anymore.
+          await _ensureColumn(
+            db,
+            'cached_exercises',
+            'include_bodyweight',
+            'INTEGER NOT NULL DEFAULT 0',
+          );
+        }
       },
       onCreate: (db, version) async {
         await db.execute('''
@@ -119,6 +132,7 @@ class LocalCacheDb {
             name TEXT NOT NULL,
             type TEXT NOT NULL,
             data TEXT,
+            include_bodyweight INTEGER NOT NULL DEFAULT 0,
             pending INTEGER NOT NULL DEFAULT 0,
             deleted INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (id, user_id)
@@ -218,6 +232,7 @@ class LocalCacheDb {
     required String name,
     required String type,
     Map<String, dynamic>? data,
+    bool includeBodyweight = false,
     required bool pending,
     bool deleted = false,
   }) async {
@@ -228,6 +243,7 @@ class LocalCacheDb {
       'name': name,
       'type': type,
       'data': data == null ? null : jsonEncode(data),
+      'include_bodyweight': includeBodyweight ? 1 : 0,
       'pending': pending ? 1 : 0,
       'deleted': deleted ? 1 : 0,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
@@ -313,6 +329,7 @@ class LocalCacheDb {
     copy.remove('user_id');
     copy.remove('pending');
     copy.remove('deleted');
+    copy['include_bodyweight'] = (copy['include_bodyweight'] as int? ?? 0) == 1;
     if (copy['data'] != null) {
       try {
         copy['data'] = jsonDecode(copy['data'] as String);
@@ -478,6 +495,7 @@ class LocalCacheDb {
           'name': row['name'],
           'type': row['type'],
           'data': row['data'] == null ? null : jsonEncode(row['data']),
+          'include_bodyweight': (row['include_bodyweight'] == true) ? 1 : 0,
           'pending': 0,
           'deleted': 0,
         }, conflictAlgorithm: ConflictAlgorithm.replace);

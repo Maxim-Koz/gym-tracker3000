@@ -18,10 +18,9 @@ import 'network_preferences.dart';
 ///    network request. If there's no connection at all, it skips straight
 ///    to the cache/queue instead of waiting out a timeout, which is what
 ///    made things feel slow offline.
-///  - When there is a connection, reads try Supabase (bounded by
-///    [_networkTimeout] in case the connection is up but not actually
-///    reaching the internet), refresh the local cache with whatever came
-///    back, then always return from the cache.
+///  - When there is a connection, reads return the local cache immediately
+///    so the UI stays fast, then kick off a background refresh from
+///    Supabase (bounded by [_networkTimeout]) to keep the cache warm.
 ///  - Writes try Supabase first when there's a connection; on failure (or
 ///    when there's none) they write a row into the local cache with a
 ///    negative "temp" id, queue it for sync, and return that temp id so
@@ -151,8 +150,9 @@ class DBHelper {
   Future<int> insertExercise(
     String name,
     String type,
-    Map<String, dynamic> data,
-  ) async {
+    Map<String, dynamic> data, {
+    bool includeBodyweight = false,
+  }) async {
     final userId = _userId;
     if (await _hasNetwork()) {
       try {
@@ -163,6 +163,7 @@ class DBHelper {
               'name': name,
               'type': type,
               'data': data,
+              'include_bodyweight': includeBodyweight,
             })
             .select('id')
             .single()
@@ -174,6 +175,7 @@ class DBHelper {
           name: name,
           type: type,
           data: data,
+          includeBodyweight: includeBodyweight,
           pending: false,
         );
         return id;
@@ -181,7 +183,7 @@ class DBHelper {
         if (!_looksOffline(e)) rethrow;
       }
     }
-    return _queueExerciseInsert(userId, name, type, data);
+    return _queueExerciseInsert(userId, name, type, data, includeBodyweight);
   }
 
   Future<int> _queueExerciseInsert(
@@ -189,6 +191,7 @@ class DBHelper {
     String name,
     String type,
     Map<String, dynamic> data,
+    bool includeBodyweight,
   ) async {
     final tempId = await _cache.nextTempId(userId);
     await _cache.upsertExercise(
@@ -197,6 +200,7 @@ class DBHelper {
       name: name,
       type: type,
       data: data,
+      includeBodyweight: includeBodyweight,
       pending: true,
     );
     await _cache.enqueueOperation(
@@ -275,25 +279,51 @@ class DBHelper {
 
   Future<List<Map<String, dynamic>>> getExercises() async {
     final userId = _userId;
-    if (await _hasNetwork()) {
-      try {
-        final rows = await _client
-            .from('exercises')
-            .select()
-            .eq('user_id', userId)
-            .order('id', ascending: false)
-            .timeout(_networkTimeout);
-        await _cache.refreshExercises(
-          userId,
-          rows.map((e) => Map<String, dynamic>.from(e as Map)).toList(),
-        );
-      } catch (_) {
-        // Any failure here (not just an obviously network-shaped
-        // error) just means we fall back to the cache below - a
-        // stale read is always better than crashing the screen.
-      }
+    final cached = await _cache.getExercises(userId);
+    if (!await _hasNetwork()) {
+      return cached;
+    }
+
+    if (cached.isNotEmpty) {
+      unawaited(_refreshExercisesFromRemote(userId));
+      return cached;
+    }
+
+    try {
+      final rows = await _client
+          .from('exercises')
+          .select()
+          .eq('user_id', userId)
+          .order('id', ascending: false)
+          .timeout(_networkTimeout);
+      await _cache.refreshExercises(
+        userId,
+        rows.map((e) => Map<String, dynamic>.from(e as Map)).toList(),
+      );
+    } catch (_) {
+      // Any failure here (not just an obviously network-shaped
+      // error) means we keep serving the cache we already have - a
+      // stale read is always better than crashing the screen.
     }
     return _cache.getExercises(userId);
+  }
+
+  Future<void> _refreshExercisesFromRemote(String userId) async {
+    try {
+      final rows = await _client
+          .from('exercises')
+          .select()
+          .eq('user_id', userId)
+          .order('id', ascending: false)
+          .timeout(_networkTimeout);
+      await _cache.refreshExercises(
+        userId,
+        rows.map((e) => Map<String, dynamic>.from(e as Map)).toList(),
+      );
+    } catch (_) {
+      // Best-effort background refresh only - the caller is already
+      // returning the cached list, so any failure is non-fatal.
+    }
   }
 
   /// Updates the free-form "metadata" note stored for an exercise (e.g.
@@ -388,6 +418,7 @@ class DBHelper {
         ? <String, dynamic>{}
         : Map<String, dynamic>.from(jsonDecode(rawData as String) as Map);
     final type = cached['type'] as String;
+    final includeBodyweight = (cached['include_bodyweight'] as int? ?? 0) == 1;
 
     if (_isTemp(exerciseId)) {
       // Not synced yet - the queued 'insert_exercise' operation reads the
@@ -398,6 +429,7 @@ class DBHelper {
         name: newName,
         type: type,
         data: data,
+        includeBodyweight: includeBodyweight,
         pending: true,
       );
       return;
@@ -417,6 +449,7 @@ class DBHelper {
           name: newName,
           type: type,
           data: data,
+          includeBodyweight: includeBodyweight,
           pending: false,
         );
         return;
@@ -431,6 +464,85 @@ class DBHelper {
       name: newName,
       type: type,
       data: data,
+      includeBodyweight: includeBodyweight,
+      pending: true,
+    );
+    final alreadyQueued = await _cache.hasPendingOperation(
+      userId: userId,
+      opType: 'update_exercise',
+      localId: exerciseId,
+    );
+    if (!alreadyQueued) {
+      await _cache.enqueueOperation(
+        userId: userId,
+        opType: 'update_exercise',
+        localId: exerciseId,
+      );
+    }
+    await refreshPendingSyncCount();
+  }
+
+  /// Turns the "include bodyweight" annotation on/off for every log under
+  /// this exercise - it's a property of the exercise itself, not of any
+  /// individual session.
+  Future<void> setExerciseIncludeBodyweight(
+    int exerciseId,
+    bool includeBodyweight,
+  ) async {
+    final userId = _userId;
+    final cached = await _cache.getCachedExerciseRaw(userId, exerciseId);
+    if (cached == null) return;
+
+    final rawData = cached['data'];
+    final data = rawData == null
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(jsonDecode(rawData as String) as Map);
+    final name = cached['name'] as String;
+    final type = cached['type'] as String;
+
+    if (_isTemp(exerciseId)) {
+      await _cache.upsertExercise(
+        userId: userId,
+        id: exerciseId,
+        name: name,
+        type: type,
+        data: data,
+        includeBodyweight: includeBodyweight,
+        pending: true,
+      );
+      return;
+    }
+
+    if (await _hasNetwork()) {
+      try {
+        await _client
+            .from('exercises')
+            .update({'include_bodyweight': includeBodyweight})
+            .eq('user_id', userId)
+            .eq('id', exerciseId)
+            .timeout(_networkTimeout);
+        await _cache.upsertExercise(
+          userId: userId,
+          id: exerciseId,
+          name: name,
+          type: type,
+          data: data,
+          includeBodyweight: includeBodyweight,
+          pending: false,
+        );
+        return;
+      } catch (e) {
+        if (!_looksOffline(e)) rethrow;
+      }
+    }
+
+    await _cache.upsertExercise(
+      userId: userId,
+      id: exerciseId,
+      name: name,
+      type: type,
+      data: data,
+      includeBodyweight: includeBodyweight,
       pending: true,
     );
     final alreadyQueued = await _cache.hasPendingOperation(
@@ -564,25 +676,50 @@ class DBHelper {
   /// Newest entry first.
   Future<List<Map<String, dynamic>>> getBodyWeights() async {
     final userId = _userId;
-    if (await _hasNetwork()) {
-      try {
-        final rows = await _client
-            .from('body_weights')
-            .select()
-            .eq('user_id', userId)
-            .order('timestamp', ascending: false)
-            .timeout(_networkTimeout);
-        await _cache.refreshBodyWeights(
-          userId,
-          rows.map((w) => _withParsedTimestamp(w as Map)).toList(),
-        );
-      } catch (_) {
-        // Any failure here (not just an obviously network-shaped
-        // error) just means we fall back to the cache below - a
-        // stale read is always better than crashing the screen.
-      }
+    final cached = await _cache.getBodyWeights(userId);
+    if (!await _hasNetwork()) {
+      return cached;
+    }
+
+    if (cached.isNotEmpty) {
+      unawaited(_refreshBodyWeightsFromRemote(userId));
+      return cached;
+    }
+
+    try {
+      final rows = await _client
+          .from('body_weights')
+          .select()
+          .eq('user_id', userId)
+          .order('timestamp', ascending: false)
+          .timeout(_networkTimeout);
+      await _cache.refreshBodyWeights(
+        userId,
+        rows.map((w) => _withParsedTimestamp(w as Map)).toList(),
+      );
+    } catch (_) {
+      // Any failure here (not just an obviously network-shaped
+      // error) means we keep serving the cache we already have - a
+      // stale read is always better than crashing the screen.
     }
     return _cache.getBodyWeights(userId);
+  }
+
+  Future<void> _refreshBodyWeightsFromRemote(String userId) async {
+    try {
+      final rows = await _client
+          .from('body_weights')
+          .select()
+          .eq('user_id', userId)
+          .order('timestamp', ascending: false)
+          .timeout(_networkTimeout);
+      await _cache.refreshBodyWeights(
+        userId,
+        rows.map((w) => _withParsedTimestamp(w as Map)).toList(),
+      );
+    } catch (_) {
+      // Best-effort background refresh only.
+    }
   }
 
   /// Updates a body weight entry's weight, unit, and/or date. Omit a
@@ -795,50 +932,106 @@ class DBHelper {
     if (_isTemp(exerciseId)) {
       return _cache.getSessionsForExercise(userId, exerciseId);
     }
-    if (await _hasNetwork()) {
-      try {
-        final rows = await _client
-            .from('sessions')
-            .select()
-            .eq('user_id', userId)
-            .eq('exercise_id', exerciseId)
-            .order('timestamp', ascending: false)
-            .timeout(_networkTimeout);
-        await _cache.refreshSessionsForExercise(
-          userId,
-          exerciseId,
-          rows.map((s) => _withParsedTimestamp(s as Map)).toList(),
-        );
-      } catch (_) {
-        // Any failure here (not just an obviously network-shaped
-        // error) just means we fall back to the cache below - a
-        // stale read is always better than crashing the screen.
-      }
+
+    final cached = await _cache.getSessionsForExercise(userId, exerciseId);
+    if (!await _hasNetwork()) {
+      return cached;
+    }
+
+    if (cached.isNotEmpty) {
+      unawaited(_refreshSessionsForExerciseFromRemote(userId, exerciseId));
+      return cached;
+    }
+
+    try {
+      final rows = await _client
+          .from('sessions')
+          .select()
+          .eq('user_id', userId)
+          .eq('exercise_id', exerciseId)
+          .order('timestamp', ascending: false)
+          .timeout(_networkTimeout);
+      await _cache.refreshSessionsForExercise(
+        userId,
+        exerciseId,
+        rows.map((s) => _withParsedTimestamp(s as Map)).toList(),
+      );
+    } catch (_) {
+      // Any failure here (not just an obviously network-shaped
+      // error) means we keep serving the cache we already have - a
+      // stale read is always better than crashing the screen.
     }
     return _cache.getSessionsForExercise(userId, exerciseId);
   }
 
+  Future<void> _refreshSessionsForExerciseFromRemote(
+    String userId,
+    int exerciseId,
+  ) async {
+    try {
+      final rows = await _client
+          .from('sessions')
+          .select()
+          .eq('user_id', userId)
+          .eq('exercise_id', exerciseId)
+          .order('timestamp', ascending: false)
+          .timeout(_networkTimeout);
+      await _cache.refreshSessionsForExercise(
+        userId,
+        exerciseId,
+        rows.map((s) => _withParsedTimestamp(s as Map)).toList(),
+      );
+    } catch (_) {
+      // Best-effort background refresh only.
+    }
+  }
+
   Future<List<Map<String, dynamic>>> getAllSessions() async {
     final userId = _userId;
-    if (await _hasNetwork()) {
-      try {
-        final rows = await _client
-            .from('sessions')
-            .select()
-            .eq('user_id', userId)
-            .order('timestamp', ascending: true)
-            .timeout(_networkTimeout);
-        await _cache.refreshAllSessions(
-          userId,
-          rows.map((s) => _withParsedTimestamp(s as Map)).toList(),
-        );
-      } catch (_) {
-        // Any failure here (not just an obviously network-shaped
-        // error) just means we fall back to the cache below - a
-        // stale read is always better than crashing the screen.
-      }
+    final cached = await _cache.getAllSessions(userId);
+    if (!await _hasNetwork()) {
+      return cached;
+    }
+
+    if (cached.isNotEmpty) {
+      unawaited(_refreshAllSessionsFromRemote(userId));
+      return cached;
+    }
+
+    try {
+      final rows = await _client
+          .from('sessions')
+          .select()
+          .eq('user_id', userId)
+          .order('timestamp', ascending: true)
+          .timeout(_networkTimeout);
+      await _cache.refreshAllSessions(
+        userId,
+        rows.map((s) => _withParsedTimestamp(s as Map)).toList(),
+      );
+    } catch (_) {
+      // Any failure here (not just an obviously network-shaped
+      // error) means we keep serving the cache we already have - a
+      // stale read is always better than crashing the screen.
     }
     return _cache.getAllSessions(userId);
+  }
+
+  Future<void> _refreshAllSessionsFromRemote(String userId) async {
+    try {
+      final rows = await _client
+          .from('sessions')
+          .select()
+          .eq('user_id', userId)
+          .order('timestamp', ascending: true)
+          .timeout(_networkTimeout);
+      await _cache.refreshAllSessions(
+        userId,
+        rows.map((s) => _withParsedTimestamp(s as Map)).toList(),
+      );
+    } catch (_) {
+      // Best-effort background refresh only.
+    }
   }
 
   /// Updates a session's note and/or date. Omit a parameter to leave it
@@ -1090,50 +1283,106 @@ class DBHelper {
     if (_isTemp(sessionId)) {
       return _cache.getSetsForSession(userId, sessionId);
     }
-    if (await _hasNetwork()) {
-      try {
-        final rows = await _client
-            .from('sets')
-            .select()
-            .eq('user_id', userId)
-            .eq('session_id', sessionId)
-            .order('id', ascending: true)
-            .timeout(_networkTimeout);
-        await _cache.refreshSetsForSession(
-          userId,
-          sessionId,
-          rows.map((r) => Map<String, dynamic>.from(r as Map)).toList(),
-        );
-      } catch (_) {
-        // Any failure here (not just an obviously network-shaped
-        // error) just means we fall back to the cache below - a
-        // stale read is always better than crashing the screen.
-      }
+
+    final cached = await _cache.getSetsForSession(userId, sessionId);
+    if (!await _hasNetwork()) {
+      return cached;
+    }
+
+    if (cached.isNotEmpty) {
+      unawaited(_refreshSetsForSessionFromRemote(userId, sessionId));
+      return cached;
+    }
+
+    try {
+      final rows = await _client
+          .from('sets')
+          .select()
+          .eq('user_id', userId)
+          .eq('session_id', sessionId)
+          .order('id', ascending: true)
+          .timeout(_networkTimeout);
+      await _cache.refreshSetsForSession(
+        userId,
+        sessionId,
+        rows.map((r) => Map<String, dynamic>.from(r as Map)).toList(),
+      );
+    } catch (_) {
+      // Any failure here (not just an obviously network-shaped
+      // error) means we keep serving the cache we already have - a
+      // stale read is always better than crashing the screen.
     }
     return _cache.getSetsForSession(userId, sessionId);
   }
 
+  Future<void> _refreshSetsForSessionFromRemote(
+    String userId,
+    int sessionId,
+  ) async {
+    try {
+      final rows = await _client
+          .from('sets')
+          .select()
+          .eq('user_id', userId)
+          .eq('session_id', sessionId)
+          .order('id', ascending: true)
+          .timeout(_networkTimeout);
+      await _cache.refreshSetsForSession(
+        userId,
+        sessionId,
+        rows.map((r) => Map<String, dynamic>.from(r as Map)).toList(),
+      );
+    } catch (_) {
+      // Best-effort background refresh only.
+    }
+  }
+
   Future<List<Map<String, dynamic>>> getAllSets() async {
     final userId = _userId;
-    if (await _hasNetwork()) {
-      try {
-        final rows = await _client
-            .from('sets')
-            .select()
-            .eq('user_id', userId)
-            .order('id', ascending: true)
-            .timeout(_networkTimeout);
-        await _cache.refreshAllSets(
-          userId,
-          rows.map((r) => Map<String, dynamic>.from(r as Map)).toList(),
-        );
-      } catch (_) {
-        // Any failure here (not just an obviously network-shaped
-        // error) just means we fall back to the cache below - a
-        // stale read is always better than crashing the screen.
-      }
+    final cached = await _cache.getAllSets(userId);
+    if (!await _hasNetwork()) {
+      return cached;
+    }
+
+    if (cached.isNotEmpty) {
+      unawaited(_refreshAllSetsFromRemote(userId));
+      return cached;
+    }
+
+    try {
+      final rows = await _client
+          .from('sets')
+          .select()
+          .eq('user_id', userId)
+          .order('id', ascending: true)
+          .timeout(_networkTimeout);
+      await _cache.refreshAllSets(
+        userId,
+        rows.map((r) => Map<String, dynamic>.from(r as Map)).toList(),
+      );
+    } catch (_) {
+      // Any failure here (not just an obviously network-shaped
+      // error) means we keep serving the cache we already have - a
+      // stale read is always better than crashing the screen.
     }
     return _cache.getAllSets(userId);
+  }
+
+  Future<void> _refreshAllSetsFromRemote(String userId) async {
+    try {
+      final rows = await _client
+          .from('sets')
+          .select()
+          .eq('user_id', userId)
+          .order('id', ascending: true)
+          .timeout(_networkTimeout);
+      await _cache.refreshAllSets(
+        userId,
+        rows.map((r) => Map<String, dynamic>.from(r as Map)).toList(),
+      );
+    } catch (_) {
+      // Best-effort background refresh only.
+    }
   }
 
   /// Updates a set's weight, reps, unit, and/or drop-set group index. Pass
@@ -1380,6 +1629,8 @@ class DBHelper {
           'name': cached['name'],
           'type': cached['type'],
           'data': data,
+          'include_bodyweight':
+              (cached['include_bodyweight'] as int? ?? 0) == 1,
         })
         .select('id')
         .single()
@@ -1400,9 +1651,14 @@ class DBHelper {
         ? <String, dynamic>{}
         : jsonDecode(rawData as String) as Map<String, dynamic>;
     final name = cached['name'] as String;
+    final includeBodyweight = (cached['include_bodyweight'] as int? ?? 0) == 1;
     await _client
         .from('exercises')
-        .update({'name': name, 'data': data})
+        .update({
+          'name': name,
+          'data': data,
+          'include_bodyweight': includeBodyweight,
+        })
         .eq('user_id', userId)
         .eq('id', localId)
         .timeout(_networkTimeout);
@@ -1412,6 +1668,7 @@ class DBHelper {
       name: name,
       type: cached['type'] as String,
       data: data,
+      includeBodyweight: includeBodyweight,
       pending: false,
     );
     await _cache.deletePendingOperation(seq);

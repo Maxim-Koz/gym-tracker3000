@@ -1,3 +1,4 @@
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'db_helper.dart';
@@ -20,16 +21,35 @@ class DataMigrationService {
 
   SupabaseClient get _client => Supabase.instance.client;
 
+  static const _networkTimeout = Duration(seconds: 8);
+
   Future<void> migrateIfNeeded() async {
     final user = _client.auth.currentUser;
     if (user == null) return;
+
+    // Fast local connectivity check first - this method's Supabase calls
+    // have no inherent timeout of their own, so without this, calling it
+    // while offline could hang for a long OS-level timeout (well past
+    // _networkTimeout below) before its catch block ever ran, blocking
+    // whatever awaited it (e.g. the home screen's calendar) the whole
+    // time. Nothing here can succeed offline anyway, so just skip it -
+    // it'll naturally run again next launch once there's a connection.
+    try {
+      final results = await Connectivity().checkConnectivity();
+      if (results.every((r) => r == ConnectivityResult.none)) return;
+    } catch (_) {
+      // Connectivity state unknown - fall through and let the timeouts
+      // below decide instead of blocking the caller indefinitely either
+      // way.
+    }
 
     try {
       final profile = await _client
           .from('profiles')
           .select('local_data_migrated')
           .eq('id', user.id)
-          .maybeSingle();
+          .maybeSingle()
+          .timeout(_networkTimeout);
 
       final alreadyMigrated = profile?['local_data_migrated'] == true;
       if (alreadyMigrated) return;
@@ -43,7 +63,8 @@ class DataMigrationService {
           await _client
               .from('profiles')
               .update({'local_data_migrated': true})
-              .eq('id', user.id);
+              .eq('id', user.id)
+              .timeout(_networkTimeout);
         }
         return;
       }
@@ -122,13 +143,15 @@ class DataMigrationService {
         await _client
             .from('exercises')
             .update({'data': updatedData})
-            .eq('id', exerciseId);
+            .eq('id', exerciseId)
+            .timeout(_networkTimeout);
       }
 
       await _client
           .from('profiles')
           .update({'local_data_migrated': true})
-          .eq('id', user.id);
+          .eq('id', user.id)
+          .timeout(_networkTimeout);
     } catch (e) {
       // Don't block login on a failed migration — the flag is only set on
       // full success, so this will simply be retried next launch.

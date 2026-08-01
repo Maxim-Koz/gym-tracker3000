@@ -295,8 +295,12 @@ class _ExerciseHistoryScreenState extends State<ExerciseHistoryScreen> {
   /// If [session] has bodyweight included, returns the last recorded body
   /// weight at or before that session's date (e.g. "75 kg"), or null if
   /// bodyweight wasn't included or nothing had been logged yet by then.
+  /// If this exercise has bodyweight included, returns the last recorded
+  /// body weight at or before [session]'s date (e.g. "75 kg"), or null if
+  /// bodyweight isn't enabled for this exercise or nothing had been logged
+  /// yet by then.
   String? _bodyweightLabelFor(Map<String, dynamic> session) {
-    if (session['include_bodyweight'] != true) return null;
+    if (_exercise?['include_bodyweight'] != true) return null;
     final date = session['timestamp'] as DateTime;
     final entry = findBodyWeightAtOrBefore(date, _bodyWeights);
     if (entry == null) return null;

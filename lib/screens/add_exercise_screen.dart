@@ -188,9 +188,12 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
                           ),
                         ],
                       ),
-                      onTap: () => Navigator.of(
-                        context,
-                      ).pushNamed('/record_exercise', arguments: ex),
+                      onTap: () async {
+                        await Navigator.of(
+                          context,
+                        ).pushNamed('/record_exercise', arguments: ex);
+                        if (mounted) _loadExercises();
+                      },
                     ),
                   );
                 },

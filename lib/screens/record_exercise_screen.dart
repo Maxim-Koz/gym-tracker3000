@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:gym_tracker/services/bodyweight_lookup.dart';
 import 'package:gym_tracker/services/db_helper.dart';
+import 'package:gym_tracker/services/session_draft_store.dart';
 import 'package:gym_tracker/services/set_entry_utils.dart';
 import 'package:gym_tracker/services/weight_format.dart';
 import 'package:gym_tracker/widgets/edit_log_sheet.dart';
@@ -21,7 +22,6 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
   String _selectedUnit = 'kg';
   final TextEditingController _noteController = TextEditingController();
   bool _showNoteField = false;
-  bool _includeBodyweight = false;
   List<Map<String, dynamic>> _bodyWeights = [];
 
   @override
@@ -34,10 +34,22 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
       if (_exercise?['id'] != nextExercise['id']) {
         _exercise = nextExercise;
         _selectedType = nextType;
-        _resetRowsForType(_selectedType);
         _noteController.clear();
         _showNoteField = false;
-        _includeBodyweight = false;
+
+        final exerciseId = nextExercise['id'] as int?;
+        final draft = exerciseId == null
+            ? null
+            : SessionDraftStore().get(exerciseId);
+        if (draft != null) {
+          _selectedType = draft.type;
+          _selectedUnit = draft.unit;
+          _noteController.text = draft.note;
+          _showNoteField = draft.note.isNotEmpty;
+          _rebuildRows(type: draft.type, draft: draft);
+        } else {
+          _rebuildRows(type: _selectedType);
+        }
       }
       _loadSessions();
     }
@@ -45,6 +57,7 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
 
   @override
   void dispose() {
+    _saveDraft();
     for (final row in _normalRows) {
       (row['weight'] as TextEditingController?)?.dispose();
       (row['reps'] as TextEditingController?)?.dispose();
@@ -64,7 +77,50 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
     super.dispose();
   }
 
-  void _resetRowsForType(String type) {
+  /// Snapshots whatever is currently typed into the log-new-session form
+  /// and stashes it so it can be restored if the user comes back to this
+  /// exercise after navigating away without saving.
+  void _saveDraft() {
+    final exerciseId = _exercise?['id'] as int?;
+    if (exerciseId == null) return;
+
+    final normalRowDrafts = _normalRows.map((row) {
+      final restPauses = row['restPauses'] as List<TextEditingController>?;
+      return NormalRowDraft(
+        weight: (row['weight'] as TextEditingController?)?.text ?? '',
+        reps: (row['reps'] as TextEditingController?)?.text ?? '',
+        unit: row['unit'] as String? ?? _selectedUnit,
+        restPauses: restPauses?.map((c) => c.text).toList() ?? const [],
+      );
+    }).toList();
+
+    final dropGroupDrafts = _dropGroups
+        .map(
+          (group) => group.rows
+              .map(
+                (row) => DropRowDraft(
+                  weight: row.weightController.text,
+                  reps: row.repsController.text,
+                  unit: row.unit,
+                ),
+              )
+              .toList(),
+        )
+        .toList();
+
+    SessionDraftStore().save(
+      exerciseId,
+      SessionDraft(
+        type: _selectedType,
+        unit: _selectedUnit,
+        note: _noteController.text,
+        normalRows: normalRowDrafts,
+        dropGroups: dropGroupDrafts,
+      ),
+    );
+  }
+
+  void _rebuildRows({required String type, SessionDraft? draft}) {
     setState(() {
       for (final row in _normalRows) {
         (row['weight'] as TextEditingController?)?.dispose();
@@ -85,16 +141,47 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
       _dropGroups.clear();
 
       if (type == 'drop') {
-        final group = DropGroup();
-        _applyUnitToGroup(group);
-        _dropGroups.add(group);
+        final groupDrafts = draft?.dropGroups;
+        if (groupDrafts != null && groupDrafts.isNotEmpty) {
+          for (final rowDrafts in groupDrafts) {
+            final group = DropGroup(rows: []);
+            for (final rowDraft in rowDrafts) {
+              group.rows.add(
+                SetEntryRow()
+                  ..weightController.text = rowDraft.weight
+                  ..repsController.text = rowDraft.reps
+                  ..unit = rowDraft.unit,
+              );
+            }
+            if (group.rows.isEmpty) group.rows.add(SetEntryRow());
+            _dropGroups.add(group);
+          }
+        } else {
+          final group = DropGroup();
+          _applyUnitToGroup(group);
+          _dropGroups.add(group);
+        }
       } else {
-        _normalRows.add({
-          'weight': TextEditingController(),
-          'reps': TextEditingController(),
-          'unit': _selectedUnit,
-          'restPauses': <TextEditingController>[],
-        });
+        final rowDrafts = draft?.normalRows;
+        if (rowDrafts != null && rowDrafts.isNotEmpty) {
+          for (final rowDraft in rowDrafts) {
+            _normalRows.add({
+              'weight': TextEditingController(text: rowDraft.weight),
+              'reps': TextEditingController(text: rowDraft.reps),
+              'unit': rowDraft.unit,
+              'restPauses': rowDraft.restPauses
+                  .map((text) => TextEditingController(text: text))
+                  .toList(),
+            });
+          }
+        } else {
+          _normalRows.add({
+            'weight': TextEditingController(),
+            'reps': TextEditingController(),
+            'unit': _selectedUnit,
+            'restPauses': <TextEditingController>[],
+          });
+        }
       }
     });
   }
@@ -141,7 +228,7 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
     setState(() {
       _selectedType = value;
     });
-    _resetRowsForType(value);
+    _rebuildRows(type: value);
   }
 
   void _addNormalRow() {
@@ -240,7 +327,6 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
       exerciseId,
       DateTime.now(),
       note: noteText.isEmpty ? null : noteText,
-      includeBodyweight: _includeBodyweight,
     );
 
     final setEntries = collectValidSetEntries(
@@ -282,11 +368,11 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
     if (!mounted) return;
     await _loadSessions();
     if (!mounted) return;
-    _resetRowsForType(_selectedType);
+    SessionDraftStore().clear(exerciseId);
+    _rebuildRows(type: _selectedType);
     setState(() {
       _noteController.clear();
       _showNoteField = false;
-      _includeBodyweight = false;
     });
     if (!mounted) return;
     ScaffoldMessenger.of(
@@ -305,6 +391,8 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
   Future<void> _showExerciseInfoSheet() async {
     if (_exercise == null) return;
     var info = _exerciseInfo;
+    var includeBodyweight =
+        (_exercise?['include_bodyweight'] as bool?) ?? false;
 
     await showModalBottomSheet<void>(
       context: context,
@@ -381,6 +469,45 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
                       },
                       child: const Text('Edit exercise info'),
                     ),
+                  ),
+                  const Divider(height: 32),
+                  SwitchListTile(
+                    value: includeBodyweight,
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Include bodyweight'),
+                    subtitle: const Text(
+                      'Every log for this exercise will show your last '
+                      'recorded body weight at that time.',
+                    ),
+                    onChanged: (value) async {
+                      final exerciseId = _exercise?['id'] as int?;
+                      if (exerciseId == null) return;
+                      setSheetState(() => includeBodyweight = value);
+                      try {
+                        await DBHelper().setExerciseIncludeBodyweight(
+                          exerciseId,
+                          value,
+                        );
+                        if (mounted) {
+                          setState(() {
+                            _exercise = {
+                              ..._exercise!,
+                              'include_bodyweight': value,
+                            };
+                          });
+                        }
+                      } catch (e) {
+                        // Revert the switch and let the user know it didn't
+                        // stick, rather than showing a state that wasn't
+                        // actually saved.
+                        setSheetState(() => includeBodyweight = !value);
+                        if (innerContext.mounted) {
+                          ScaffoldMessenger.of(
+                            innerContext,
+                          ).showSnackBar(SnackBar(content: Text('Error: $e')));
+                        }
+                      }
+                    },
                   ),
                 ],
               ),
@@ -751,20 +878,6 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
                       ],
                     ),
                     const SizedBox(height: 8),
-                    const SizedBox(height: 8),
-                    CheckboxListTile(
-                      value: _includeBodyweight,
-                      onChanged: (value) {
-                        setState(() => _includeBodyweight = value ?? false);
-                      },
-                      contentPadding: EdgeInsets.zero,
-                      controlAffinity: ListTileControlAffinity.leading,
-                      title: const Text('Include bodyweight'),
-                      subtitle: const Text(
-                        "Shows this session's weight alongside your last "
-                        'recorded body weight at that time.',
-                      ),
-                    ),
                     if (!_showNoteField)
                       Align(
                         alignment: Alignment.centerLeft,
@@ -821,11 +934,12 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
     return '${local.day.toString().padLeft(2, '0')}/${local.month.toString().padLeft(2, '0')}/${local.year}';
   }
 
-  /// If [session] has bodyweight included, returns the last recorded body
-  /// weight at or before that session's date (e.g. "75 kg"), or null if
-  /// bodyweight wasn't included or nothing had been logged yet by then.
+  /// If this exercise has bodyweight included, returns the last recorded
+  /// body weight at or before [session]'s date (e.g. "75 kg"), or null if
+  /// bodyweight isn't enabled for this exercise or nothing had been logged
+  /// yet by then.
   String? _bodyweightLabelFor(Map<String, dynamic> session) {
-    if (session['include_bodyweight'] != true) return null;
+    if (_exercise?['include_bodyweight'] != true) return null;
     final date = session['timestamp'] as DateTime;
     final entry = findBodyWeightAtOrBefore(date, _bodyWeights);
     if (entry == null) return null;

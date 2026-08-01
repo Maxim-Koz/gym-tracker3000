@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:gym_tracker/services/data_migration_service.dart';
 import 'package:gym_tracker/services/db_helper.dart';
@@ -12,6 +13,7 @@ class HomeScreen extends StatefulWidget {
   // doesn't briefly show the previous user's cached username.
   static void clearCachedUsername() {
     _HomeScreenState._cachedUsername = null;
+    _HomeScreenState._clearPersistedUsername();
   }
 
   @override
@@ -25,60 +27,97 @@ class _HomeScreenState extends State<HomeScreen> {
   static String? _cachedUsername;
 
   int _selectedIndex = 0;
-  late String _username = _cachedUsername ?? 'there';
+  String _username = 'there';
   Set<DateTime> _loggedDates = <DateTime>{};
+
+  static String _usernameKey(String userId) => 'cached_username_$userId';
+
+  static Future<String?> _readPersistedUsername(String userId) async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_usernameKey(userId));
+  }
+
+  static Future<void> _writePersistedUsername(
+    String userId,
+    String username,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_usernameKey(userId), username);
+  }
+
+  static Future<void> _clearPersistedUsername() async {
+    final prefs = await SharedPreferences.getInstance();
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return;
+    await prefs.remove(_usernameKey(userId));
+  }
 
   @override
   void initState() {
     super.initState();
     _loadUsername();
-    _initializeWorkoutData();
-  }
-
-  // Copies any workout history still sitting in this device's local
-  // database up to the user's Supabase account (no-op after the first
-  // successful run, and on devices with nothing local to migrate), then
-  // loads the calendar from the now-authoritative cloud data.
-  Future<void> _initializeWorkoutData() async {
-    await DataMigrationService().migrateIfNeeded();
-    await _loadLoggedDates();
+    // Run independently rather than one after the other - migration is
+    // now offline-safe on its own (see DataMigrationService), but even so,
+    // the calendar shouldn't have to wait on it: a slow migration (a
+    // large legacy import, for instance) shouldn't leave the calendar
+    // sitting blank in the meantime when it has nothing to do with it.
+    DataMigrationService().migrateIfNeeded(); // ignore: discarded_futures
+    _loadLoggedDates();
   }
 
   Future<void> _loadUsername() async {
     final user = Supabase.instance.client.auth.currentUser;
-    if (user == null) return;
-
-    final response = await Supabase.instance.client
-        .from('profiles')
-        .select('username')
-        .eq('id', user.id)
-        .maybeSingle();
-
-    String? username;
-    if (response is Map<String, dynamic>) {
-      username = response['username'] as String?;
+    if (user == null) {
+      if (!mounted) return;
+      setState(() => _username = 'there');
+      return;
     }
 
-    if (username != null && username.isNotEmpty) {
-      _cachedUsername = username;
+    final persisted = await _readPersistedUsername(user.id);
+    if (persisted != null && persisted.isNotEmpty) {
+      _cachedUsername = persisted;
       if (!mounted) return;
-      setState(() {
-        _username = username!;
-      });
-    } else if (user.email != null) {
-      final fallback = user.email!.split('@').first;
-      _cachedUsername = fallback;
-      if (!mounted) return;
-      setState(() {
-        _username = fallback;
-      });
+      setState(() => _username = persisted);
+    }
+
+    try {
+      final response = await Supabase.instance.client
+          .from('profiles')
+          .select('username')
+          .eq('id', user.id)
+          .maybeSingle();
+
+      String? username;
+      if (response is Map<String, dynamic>) {
+        username = response['username'] as String?;
+      }
+
+      if (username != null && username.isNotEmpty) {
+        _cachedUsername = username;
+        await _writePersistedUsername(user.id, username);
+        if (!mounted) return;
+        setState(() {
+          _username = username!;
+        });
+      }
+    } catch (_) {
+      if (_cachedUsername != null && mounted) {
+        setState(() => _username = _cachedUsername!);
+      }
     }
   }
 
   Future<void> _loadLoggedDates() async {
-    final dates = await DBHelper().getLoggedDates();
-    if (!mounted) return;
-    setState(() => _loggedDates = dates.toSet());
+    try {
+      final dates = await DBHelper().getLoggedDates();
+      if (!mounted) return;
+      setState(() => _loggedDates = dates.toSet());
+    } catch (e) {
+      // Leave whatever was already showing (possibly nothing, on first
+      // load) rather than crash the home screen over a calendar that
+      // failed to load - the full year view has its own retry affordance.
+      debugPrint('Failed to load logged dates: $e');
+    }
   }
 
   void _onNavTap(int index) {
