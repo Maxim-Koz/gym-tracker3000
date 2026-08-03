@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:gym_tracker/services/db_helper.dart';
+import 'package:gym_tracker/services/session_note_utils.dart';
 import 'package:gym_tracker/services/set_entry_utils.dart';
 
 class LogSessionScreen extends StatefulWidget {
@@ -17,6 +18,7 @@ class _LogSessionScreenState extends State<LogSessionScreen> {
   bool _rowsInitialized = false;
   final TextEditingController _noteController = TextEditingController();
   bool _showNoteField = false;
+  bool _isOneRepMax = false;
 
   @override
   void didChangeDependencies() {
@@ -31,6 +33,7 @@ class _LogSessionScreenState extends State<LogSessionScreen> {
         _resetRowsForType(_selectedType);
         _noteController.clear();
         _showNoteField = false;
+        _isOneRepMax = false;
         _rowsInitialized = true;
       }
     }
@@ -141,10 +144,14 @@ class _LogSessionScreenState extends State<LogSessionScreen> {
     }
 
     final noteText = _noteController.text.trim();
+    final encodedNote = encodeSessionNote(
+      noteText.isEmpty ? null : noteText,
+      isOneRepMax: _isOneRepMax,
+    );
     final sessionId = await DBHelper().insertSession(
       exerciseId,
       DateTime.now(),
-      note: noteText.isEmpty ? null : noteText,
+      note: encodedNote.isEmpty ? null : encodedNote,
     );
 
     final setEntries = collectValidSetEntries(
@@ -176,6 +183,7 @@ class _LogSessionScreenState extends State<LogSessionScreen> {
     if (!mounted) return;
     _noteController.clear();
     _showNoteField = false;
+    _isOneRepMax = false;
     Navigator.of(context).pop(true);
     ScaffoldMessenger.of(
       context,
@@ -522,6 +530,14 @@ class _LogSessionScreenState extends State<LogSessionScreen> {
               ],
             ),
             const SizedBox(height: 8),
+            CheckboxListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('One rep max'),
+              value: _isOneRepMax,
+              onChanged: (value) =>
+                  setState(() => _isOneRepMax = value ?? false),
+              controlAffinity: ListTileControlAffinity.leading,
+            ),
             if (!_showNoteField)
               Align(
                 alignment: Alignment.centerLeft,

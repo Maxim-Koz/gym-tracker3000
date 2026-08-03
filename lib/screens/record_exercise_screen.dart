@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:gym_tracker/services/bodyweight_lookup.dart';
 import 'package:gym_tracker/services/db_helper.dart';
 import 'package:gym_tracker/services/session_draft_store.dart';
+import 'package:gym_tracker/services/session_note_utils.dart';
 import 'package:gym_tracker/services/set_entry_utils.dart';
 import 'package:gym_tracker/services/weight_format.dart';
 import 'package:gym_tracker/widgets/edit_log_sheet.dart';
@@ -22,6 +23,7 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
   String _selectedUnit = 'kg';
   final TextEditingController _noteController = TextEditingController();
   bool _showNoteField = false;
+  bool _isOneRepMax = false;
   List<Map<String, dynamic>> _bodyWeights = [];
 
   @override
@@ -36,6 +38,7 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
         _selectedType = nextType;
         _noteController.clear();
         _showNoteField = false;
+        _isOneRepMax = false;
 
         final exerciseId = nextExercise['id'] as int?;
         final draft = exerciseId == null
@@ -46,6 +49,7 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
           _selectedUnit = draft.unit;
           _noteController.text = draft.note;
           _showNoteField = draft.note.isNotEmpty;
+          _isOneRepMax = draft.isOneRepMax;
           _rebuildRows(type: draft.type, draft: draft);
         } else {
           _rebuildRows(type: _selectedType);
@@ -114,6 +118,7 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
         type: _selectedType,
         unit: _selectedUnit,
         note: _noteController.text,
+        isOneRepMax: _isOneRepMax,
         normalRows: normalRowDrafts,
         dropGroups: dropGroupDrafts,
       ),
@@ -242,6 +247,21 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
     });
   }
 
+  void _ensureOrmRow() {
+    if (_normalRows.isEmpty) {
+      _normalRows.add({
+        'weight': TextEditingController(),
+        'reps': TextEditingController(text: '1'),
+        'unit': _selectedUnit,
+        'restPauses': <TextEditingController>[],
+      });
+    } else {
+      final repsController =
+          _normalRows.first['reps'] as TextEditingController?;
+      repsController?.text = '1';
+    }
+  }
+
   void _addDropRow(int groupIndex) {
     setState(() {
       _dropGroups[groupIndex].rows.add(SetEntryRow()..unit = _selectedUnit);
@@ -261,6 +281,7 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
       type: _selectedType,
       normalRows: _normalRows,
       dropGroups: _dropGroups,
+      isOneRepMax: _isOneRepMax,
     );
   }
 
@@ -307,6 +328,7 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
       type: _selectedType,
       normalRows: _normalRows,
       dropGroups: _dropGroups,
+      isOneRepMax: _isOneRepMax,
     );
     if (entryError != null) {
       ScaffoldMessenger.of(
@@ -323,16 +345,21 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
     }
 
     final noteText = _noteController.text.trim();
+    final encodedNote = encodeSessionNote(
+      noteText.isEmpty ? null : noteText,
+      isOneRepMax: _isOneRepMax,
+    );
     final sessionId = await DBHelper().insertSession(
       exerciseId,
       DateTime.now(),
-      note: noteText.isEmpty ? null : noteText,
+      note: encodedNote.isEmpty ? null : encodedNote,
     );
 
     final setEntries = collectValidSetEntries(
       type: _selectedType,
       normalRows: _normalRows,
       dropGroups: _dropGroups,
+      isOneRepMax: _isOneRepMax,
     );
 
     for (final entry in setEntries) {
@@ -373,6 +400,7 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
     setState(() {
       _noteController.clear();
       _showNoteField = false;
+      _isOneRepMax = false;
     });
     if (!mounted) return;
     ScaffoldMessenger.of(
@@ -573,6 +601,9 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
                         final session = item['session'] as Map<String, dynamic>;
                         final sets = item['sets'] as List<Map<String, dynamic>>;
                         final date = session['timestamp'] as DateTime;
+                        final noteText = stripOneRepMaxMarker(
+                          session['note'] as String?,
+                        );
                         return Card(
                           margin: const EdgeInsets.symmetric(vertical: 6.0),
                           child: Padding(
@@ -605,11 +636,10 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
                                     ),
                                   ],
                                 ),
-                                if ((session['note'] as String?)?.isNotEmpty ??
-                                    false) ...[
+                                if (noteText.isNotEmpty) ...[
                                   const SizedBox(height: 4),
                                   Text(
-                                    session['note'] as String,
+                                    noteText,
                                     style: const TextStyle(
                                       fontStyle: FontStyle.italic,
                                       color: Colors.grey,
@@ -628,7 +658,12 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
                                   ),
                                 ],
                                 const SizedBox(height: 8),
-                                ..._buildSetRows(sets),
+                                ..._buildSetRows(
+                                  sets,
+                                  isOneRepMax: noteHasOneRepMax(
+                                    session['note'] as String?,
+                                  ),
+                                ),
                               ],
                             ),
                           ),
@@ -650,23 +685,25 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
                   children: [
                     Row(
                       children: [
-                        const Text('Set type'),
-                        const SizedBox(width: 12),
-                        DropdownButton<String>(
-                          value: _selectedType,
-                          items: const [
-                            DropdownMenuItem(
-                              value: 'normal',
-                              child: Text('Normal'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'drop',
-                              child: Text('Drop set'),
-                            ),
-                          ],
-                          onChanged: _changeSetType,
-                        ),
-                        const SizedBox(width: 20),
+                        if (!_isOneRepMax) ...[
+                          const Text('Set type'),
+                          const SizedBox(width: 12),
+                          DropdownButton<String>(
+                            value: _selectedType,
+                            items: const [
+                              DropdownMenuItem(
+                                value: 'normal',
+                                child: Text('Normal'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'drop',
+                                child: Text('Drop set'),
+                              ),
+                            ],
+                            onChanged: _changeSetType,
+                          ),
+                          const SizedBox(width: 20),
+                        ],
                         const Text('Unit'),
                         const SizedBox(width: 12),
                         DropdownButton<String>(
@@ -759,6 +796,8 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
                           ),
                         );
                       })
+                    else if (_isOneRepMax)
+                      _buildOrmEntry()
                     else
                       ...List.generate(_normalRows.length, (index) {
                         final row = _normalRows[index];
@@ -792,15 +831,12 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
                                       ),
                                     ),
                                   ),
-                                  IconButton(
-                                    icon: const Text(
-                                      'RP',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                      ),
+                                  SizedBox(
+                                    height: 40,
+                                    child: FilledButton.tonal(
+                                      onPressed: () => _addRestPause(index),
+                                      child: const Text('RP'),
                                     ),
-                                    tooltip: 'Add rest pause',
-                                    onPressed: () => _addRestPause(index),
                                   ),
                                   IconButton(
                                     icon: const Icon(Icons.delete),
@@ -863,21 +899,40 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
                         );
                       }),
                     const SizedBox(height: 12),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          _selectedType == 'drop' ? 'Drop set groups' : 'Sets',
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.add),
-                          onPressed: _selectedType == 'drop'
-                              ? _addDropGroup
-                              : _addNormalRow,
-                        ),
-                      ],
-                    ),
+                    if (!_isOneRepMax)
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            _selectedType == 'drop'
+                                ? 'Drop set groups'
+                                : 'Sets',
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.add),
+                            onPressed: _selectedType == 'drop'
+                                ? _addDropGroup
+                                : _addNormalRow,
+                          ),
+                        ],
+                      ),
                     const SizedBox(height: 8),
+                    CheckboxListTile.adaptive(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('One rep max'),
+                      value: _isOneRepMax,
+                      onChanged: (value) {
+                        setState(() {
+                          _isOneRepMax = value ?? false;
+                          if (_isOneRepMax) {
+                            _selectedType = 'normal';
+                            _rebuildRows(type: 'normal');
+                            _ensureOrmRow();
+                          }
+                        });
+                      },
+                      controlAffinity: ListTileControlAffinity.leading,
+                    ),
                     if (!_showNoteField)
                       Align(
                         alignment: Alignment.centerLeft,
@@ -946,7 +1001,55 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
     return formatBodyWeightEntry(entry);
   }
 
-  List<Widget> _buildSetRows(List<Map<String, dynamic>> sets) {
+  Widget _buildOrmEntry() {
+    _ensureOrmRow();
+    final row = _normalRows.first;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Enter a single weight for this 1RM.',
+            style: TextStyle(
+              fontSize: 13,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: row['weight'] as TextEditingController,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                    signed: true,
+                  ),
+                  decoration: const InputDecoration(labelText: 'Weight'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              SizedBox(
+                width: 92,
+                child: TextField(
+                  controller: row['reps'] as TextEditingController,
+                  keyboardType: TextInputType.number,
+                  readOnly: true,
+                  decoration: const InputDecoration(labelText: 'Reps'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _buildSetRows(
+    List<Map<String, dynamic>> sets, {
+    bool isOneRepMax = false,
+  }) {
     final childrenByParent = <int, List<Map<String, dynamic>>>{};
     final parentRows = <Map<String, dynamic>>[];
 
@@ -966,7 +1069,11 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
       final children = id == null
           ? <Map<String, dynamic>>[]
           : childrenByParent[id] ?? [];
-      return _buildSingleSetRow(row, children: children);
+      return _buildSingleSetRow(
+        row,
+        children: children,
+        isOneRepMax: isOneRepMax,
+      );
     }
 
     if (!hasGroups) {
@@ -1006,6 +1113,7 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
   Widget _buildSingleSetRow(
     Map<String, dynamic> setRow, {
     List<Map<String, dynamic>> children = const <Map<String, dynamic>>[],
+    bool isOneRepMax = false,
   }) {
     final weight = setRow['weight'];
     final unit = setRow['unit'];
@@ -1017,13 +1125,20 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
     } else {
       weightText = weight.toString();
     }
+    final isOrmEntry =
+        isOneRepMax ||
+        setRow['is_one_rep_max'] == true ||
+        setRow['isOneRepMax'] == true;
+    final repsDisplay = isOrmEntry
+        ? '1 rep max'
+        : _formatRepsDisplay(setRow, children);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2.0),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text('${weightText} ${unit ?? ''}'.trim()),
-          Text(_formatRepsDisplay(setRow, children)),
+          Text(repsDisplay),
         ],
       ),
     );

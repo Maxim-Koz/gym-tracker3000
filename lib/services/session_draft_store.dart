@@ -40,6 +40,7 @@ class SessionDraft {
     required this.type,
     required this.unit,
     required this.note,
+    required this.isOneRepMax,
     required this.normalRows,
     required this.dropGroups,
   });
@@ -47,6 +48,7 @@ class SessionDraft {
   final String type;
   final String unit;
   final String note;
+  final bool isOneRepMax;
   final List<NormalRowDraft> normalRows;
   final List<List<DropRowDraft>> dropGroups;
 

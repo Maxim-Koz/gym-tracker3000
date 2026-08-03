@@ -6,8 +6,13 @@ import 'package:gym_tracker/services/weight_format.dart';
 class WeightPoint {
   final DateTime date;
   final double weightKg;
+  final bool isOneRepMax;
 
-  const WeightPoint({required this.date, required this.weightKg});
+  const WeightPoint({
+    required this.date,
+    required this.weightKg,
+    this.isOneRepMax = false,
+  });
 }
 
 /// Plots [points] as a simple line chart: time on the x-axis, weight on the
@@ -83,6 +88,7 @@ class _WeightProgressChartState extends State<WeightProgressChart> {
               gridColor: scheme.surfaceContainerHighest,
               lineColor: scheme.primary,
               pointColor: scheme.primary,
+              ormPointColor: Colors.white,
               tooltipBackground: scheme.inverseSurface,
               tooltipTextColor: scheme.onInverseSurface,
             ),
@@ -190,6 +196,7 @@ class _WeightChartPainter extends CustomPainter {
   final Color gridColor;
   final Color lineColor;
   final Color pointColor;
+  final Color ormPointColor;
   final Color tooltipBackground;
   final Color tooltipTextColor;
 
@@ -200,6 +207,7 @@ class _WeightChartPainter extends CustomPainter {
     required this.gridColor,
     required this.lineColor,
     required this.pointColor,
+    required this.ormPointColor,
     required this.tooltipBackground,
     required this.tooltipTextColor,
   });
@@ -278,7 +286,9 @@ class _WeightChartPainter extends CustomPainter {
       tp.paint(canvas, Offset(dx, topPadding + chartHeight + 6));
     }
 
-    // Line connecting the points (straight segments).
+    // Line connecting the points (straight segments), while skipping ORM
+    // points so they remain visible but don't interrupt the line between the
+    // surrounding points.
     final linePaint = Paint()
       ..color = lineColor
       ..strokeWidth = 2.5
@@ -286,27 +296,41 @@ class _WeightChartPainter extends CustomPainter {
       ..strokeJoin = StrokeJoin.round
       ..strokeCap = StrokeCap.round;
 
-    final path = Path();
+    Offset? previousOffset;
     for (var i = 0; i < points.length; i++) {
-      final offset = geometry.offsetFor(points[i]);
-      if (i == 0) {
-        path.moveTo(offset.dx, offset.dy);
-      } else {
-        path.lineTo(offset.dx, offset.dy);
+      final point = points[i];
+      if (point.isOneRepMax) {
+        continue;
       }
+
+      final offset = geometry.offsetFor(point);
+      if (previousOffset == null) {
+        previousOffset = offset;
+        continue;
+      }
+
+      final path = Path()
+        ..moveTo(previousOffset.dx, previousOffset.dy)
+        ..lineTo(offset.dx, offset.dy);
+      canvas.drawPath(path, linePaint);
+      previousOffset = offset;
     }
-    canvas.drawPath(path, linePaint);
 
     // Point markers, with the held point drawn larger plus a soft halo.
-    final pointPaint = Paint()..color = pointColor;
     for (var i = 0; i < points.length; i++) {
-      final offset = geometry.offsetFor(points[i]);
+      final point = points[i];
+      final offset = geometry.offsetFor(point);
       final isHighlighted = i == highlightedIndex;
+      final markerColor = point.isOneRepMax ? ormPointColor : pointColor;
       if (isHighlighted) {
-        final haloPaint = Paint()..color = pointColor.withOpacity(0.25);
+        final haloPaint = Paint()..color = markerColor.withOpacity(0.25);
         canvas.drawCircle(offset, 11, haloPaint);
       }
-      canvas.drawCircle(offset, isHighlighted ? 5.5 : 3.5, pointPaint);
+      canvas.drawCircle(
+        offset,
+        isHighlighted ? 5.5 : 3.5,
+        Paint()..color = markerColor,
+      );
     }
 
     // Tooltip for the held point: a dashed guide line plus a bubble showing

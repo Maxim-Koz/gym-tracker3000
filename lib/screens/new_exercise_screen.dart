@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:gym_tracker/services/db_helper.dart';
+import 'package:gym_tracker/services/exercise_grouping.dart';
 
 /// Creates a new exercise. Deliberately minimal - just a name and whether
 /// to include bodyweight - logging an actual session happens afterwards
@@ -15,6 +16,21 @@ class _NewExerciseScreenState extends State<NewExerciseScreen> {
   final _nameController = TextEditingController();
   bool _includeBodyweight = false;
   bool _isSaving = false;
+  List<String> _groupNames = [];
+  final Set<String> _selectedGroups = <String>{};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadExistingGroups();
+  }
+
+  Future<void> _loadExistingGroups() async {
+    final exercises = await DBHelper().getExercises();
+    final groupNames = await loadExerciseGroupNames(exercises);
+    if (!mounted) return;
+    setState(() => _groupNames = groupNames);
+  }
 
   @override
   void dispose() {
@@ -42,12 +58,10 @@ class _NewExerciseScreenState extends State<NewExerciseScreen> {
       // Type only matters once the user starts logging sets, so it isn't
       // asked for here - every exercise starts as 'normal' and can be
       // changed later if that ever needs to be exposed.
-      await DBHelper().insertExercise(
-        name,
-        'normal',
-        {},
-        includeBodyweight: _includeBodyweight,
-      );
+      final groups = _selectedGroups.toList()..sort();
+      await DBHelper().insertExercise(name, 'normal', {
+        'groups': groups,
+      }, includeBodyweight: _includeBodyweight);
 
       if (!mounted) return;
       Navigator.of(context).pop(true);
@@ -97,6 +111,31 @@ class _NewExerciseScreenState extends State<NewExerciseScreen> {
                 'body weight at that time. You can change this later.',
               ),
             ),
+            if (_groupNames.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              const Text('Add to groups'),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final groupName in _groupNames)
+                    FilterChip(
+                      label: Text(groupName),
+                      selected: _selectedGroups.contains(groupName),
+                      onSelected: (selected) {
+                        setState(() {
+                          if (selected) {
+                            _selectedGroups.add(groupName);
+                          } else {
+                            _selectedGroups.remove(groupName);
+                          }
+                        });
+                      },
+                    ),
+                ],
+              ),
+            ],
           ],
         ),
       ),

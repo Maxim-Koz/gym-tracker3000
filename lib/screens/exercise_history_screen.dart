@@ -2,6 +2,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:gym_tracker/services/bodyweight_lookup.dart';
 import 'package:gym_tracker/services/db_helper.dart';
+import 'package:gym_tracker/services/session_note_utils.dart';
 import 'package:gym_tracker/services/weight_format.dart';
 import 'package:gym_tracker/widgets/edit_log_sheet.dart';
 import 'package:gym_tracker/widgets/weight_progress_chart.dart';
@@ -71,7 +72,7 @@ class _ExerciseHistoryScreenState extends State<ExerciseHistoryScreen> {
           : Column(
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
                   child: CupertinoSlidingSegmentedControl<_ViewMode>(
                     groupValue: _viewMode,
                     children: const {
@@ -145,6 +146,7 @@ class _ExerciseHistoryScreenState extends State<ExerciseHistoryScreen> {
         final session = sessionBundle['session'] as Map<String, dynamic>;
         final sets = sessionBundle['sets'] as List<Map<String, dynamic>>;
         final date = session['timestamp'] as DateTime;
+        final noteText = stripOneRepMaxMarker(session['note'] as String?);
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           child: Card(
@@ -178,10 +180,10 @@ class _ExerciseHistoryScreenState extends State<ExerciseHistoryScreen> {
                       ),
                     ],
                   ),
-                  if ((session['note'] as String?)?.isNotEmpty ?? false) ...[
+                  if (noteText.isNotEmpty) ...[
                     const SizedBox(height: 4),
                     Text(
-                      session['note'] as String,
+                      noteText,
                       style: const TextStyle(
                         fontStyle: FontStyle.italic,
                         color: Colors.grey,
@@ -269,6 +271,7 @@ class _ExerciseHistoryScreenState extends State<ExerciseHistoryScreen> {
       final date = session['timestamp'] as DateTime;
       if (cutoff != null && date.isBefore(cutoff)) continue;
 
+      bool isOneRepMax = noteHasOneRepMax(session['note'] as String?);
       double? bestKg;
       for (final set in sets) {
         final rawWeight = set['weight'];
@@ -279,7 +282,9 @@ class _ExerciseHistoryScreenState extends State<ExerciseHistoryScreen> {
         if (bestKg == null || kg > bestKg) bestKg = kg;
       }
       if (bestKg != null) {
-        points.add(WeightPoint(date: date, weightKg: bestKg));
+        points.add(
+          WeightPoint(date: date, weightKg: bestKg, isOneRepMax: isOneRepMax),
+        );
       }
     }
 

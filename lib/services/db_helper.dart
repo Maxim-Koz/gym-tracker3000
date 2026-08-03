@@ -482,6 +482,82 @@ class DBHelper {
     await refreshPendingSyncCount();
   }
 
+  /// Persists the set of user-defined groups attached to an exercise by
+  /// storing them in the exercise's existing `data` map as `groups`.
+  Future<void> setExerciseGroups(int exerciseId, List<String> groups) async {
+    final userId = _userId;
+    final cached = await _cache.getCachedExerciseRaw(userId, exerciseId);
+    if (cached == null) return;
+
+    final rawData = cached['data'];
+    final data = rawData == null
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(jsonDecode(rawData as String) as Map);
+    final name = cached['name'] as String;
+    final type = cached['type'] as String;
+    final includeBodyweight = (cached['include_bodyweight'] as int? ?? 0) == 1;
+    data['groups'] = groups;
+
+    if (_isTemp(exerciseId)) {
+      await _cache.upsertExercise(
+        userId: userId,
+        id: exerciseId,
+        name: name,
+        type: type,
+        data: data,
+        includeBodyweight: includeBodyweight,
+        pending: true,
+      );
+      return;
+    }
+
+    if (await _hasNetwork()) {
+      try {
+        await _client
+            .from('exercises')
+            .update({'data': data})
+            .eq('user_id', userId)
+            .eq('id', exerciseId)
+            .timeout(_networkTimeout);
+        await _cache.upsertExercise(
+          userId: userId,
+          id: exerciseId,
+          name: name,
+          type: type,
+          data: data,
+          includeBodyweight: includeBodyweight,
+          pending: false,
+        );
+        return;
+      } catch (e) {
+        if (!_looksOffline(e)) rethrow;
+      }
+    }
+
+    await _cache.upsertExercise(
+      userId: userId,
+      id: exerciseId,
+      name: name,
+      type: type,
+      data: data,
+      includeBodyweight: includeBodyweight,
+      pending: true,
+    );
+    final alreadyQueued = await _cache.hasPendingOperation(
+      userId: userId,
+      opType: 'update_exercise',
+      localId: exerciseId,
+    );
+    if (!alreadyQueued) {
+      await _cache.enqueueOperation(
+        userId: userId,
+        opType: 'update_exercise',
+        localId: exerciseId,
+      );
+    }
+    await refreshPendingSyncCount();
+  }
+
   /// Turns the "include bodyweight" annotation on/off for every log under
   /// this exercise - it's a property of the exercise itself, not of any
   /// individual session.

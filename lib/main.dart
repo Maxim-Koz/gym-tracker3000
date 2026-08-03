@@ -6,6 +6,8 @@ import 'package:gym_tracker/screens/home_screen.dart';
 import 'package:gym_tracker/screens/signup_screen.dart';
 import 'package:gym_tracker/screens/add_exercise_screen.dart';
 import 'package:gym_tracker/screens/new_exercise_screen.dart';
+import 'package:gym_tracker/screens/new_group_screen.dart';
+import 'package:gym_tracker/screens/exercise_groups_screen.dart';
 import 'package:gym_tracker/screens/record_exercise_screen.dart';
 import 'package:gym_tracker/screens/log_session_screen.dart';
 import 'package:gym_tracker/screens/weight_screen.dart';
@@ -80,6 +82,13 @@ class MyApp extends StatelessWidget {
         '/home': (context) => const HomeScreen(),
         '/add_exercise': (context) => const AddExerciseScreen(),
         '/new_exercise': (context) => const NewExerciseScreen(),
+        '/new_group': (context) => const NewGroupScreen(),
+        '/exercise_groups': (context) {
+          final selectedGroupName = ModalRoute.of(context)?.settings.arguments;
+          return ExerciseGroupsScreen(
+            initialGroupName: selectedGroupName as String?,
+          );
+        },
         '/record_exercise': (context) => const RecordExerciseScreen(),
         '/log_session': (context) => const LogSessionScreen(),
         '/history': (context) => const HistoryScreen(),

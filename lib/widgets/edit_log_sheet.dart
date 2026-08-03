@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:gym_tracker/services/db_helper.dart';
+import 'package:gym_tracker/services/session_note_utils.dart';
 import 'package:gym_tracker/services/set_entry_utils.dart';
 import 'package:gym_tracker/services/weight_format.dart';
 
@@ -48,6 +49,7 @@ class EditLogSheet extends StatefulWidget {
 class _EditLogSheetState extends State<EditLogSheet> {
   late final TextEditingController _noteController;
   late DateTime _date;
+  late bool _isOneRepMax;
   late final List<int> _originalTopLevelSetIds;
 
   final List<Map<String, dynamic>> _normalRows = [];
@@ -60,9 +62,10 @@ class _EditLogSheetState extends State<EditLogSheet> {
   void initState() {
     super.initState();
     _noteController = TextEditingController(
-      text: widget.session['note'] as String? ?? '',
+      text: stripOneRepMaxMarker(widget.session['note'] as String?),
     );
     _date = widget.session['timestamp'] as DateTime;
+    _isOneRepMax = noteHasOneRepMax(widget.session['note'] as String?);
     _originalTopLevelSetIds = widget.sets
         .where((s) => s['parent_set_id'] == null)
         .map((s) => s['id'] as int)
@@ -202,6 +205,14 @@ class _EditLogSheetState extends State<EditLogSheet> {
     setState(() => _normalRows.add(_blankNormalRow()));
   }
 
+  void _ensureOrmRow() {
+    if (_normalRows.isEmpty) {
+      _normalRows.add(_blankNormalRow());
+    }
+    final repsController = _normalRows.first['reps'] as TextEditingController?;
+    repsController?.text = '1';
+  }
+
   void _addRestPause(int rowIndex) {
     setState(() {
       final row = _normalRows[rowIndex];
@@ -290,6 +301,7 @@ class _EditLogSheetState extends State<EditLogSheet> {
       type: _selectedType,
       normalRows: _normalRows,
       dropGroups: _dropGroups,
+      isOneRepMax: _isOneRepMax,
     );
     if (entryError != null) {
       ScaffoldMessenger.of(
@@ -302,6 +314,7 @@ class _EditLogSheetState extends State<EditLogSheet> {
       type: _selectedType,
       normalRows: _normalRows,
       dropGroups: _dropGroups,
+      isOneRepMax: _isOneRepMax,
     );
     if (!hasEntries) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -313,9 +326,13 @@ class _EditLogSheetState extends State<EditLogSheet> {
     setState(() => _busy = true);
     try {
       final noteText = _noteController.text.trim();
+      final encodedNote = encodeSessionNote(
+        noteText.isEmpty ? null : noteText,
+        isOneRepMax: _isOneRepMax,
+      );
       await DBHelper().updateSession(
         _sessionId,
-        note: noteText.isEmpty ? null : noteText,
+        note: encodedNote.isEmpty ? null : encodedNote,
         timestamp: _date,
       );
 
@@ -331,6 +348,7 @@ class _EditLogSheetState extends State<EditLogSheet> {
         type: _selectedType,
         normalRows: _normalRows,
         dropGroups: _dropGroups,
+        isOneRepMax: _isOneRepMax,
       );
 
       for (final entry in setEntries) {
@@ -445,49 +463,70 @@ class _EditLogSheetState extends State<EditLogSheet> {
                           border: OutlineInputBorder(),
                         ),
                       ),
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          const Text('Set type'),
-                          const SizedBox(width: 12),
-                          DropdownButton<String>(
-                            value: _selectedType,
-                            items: const [
-                              DropdownMenuItem(
-                                value: 'normal',
-                                child: Text('Normal'),
-                              ),
-                              DropdownMenuItem(
-                                value: 'drop',
-                                child: Text('Drop set'),
-                              ),
-                            ],
-                            onChanged: _changeSetType,
-                          ),
-                        ],
+                      const SizedBox(height: 12),
+                      CheckboxListTile.adaptive(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('One rep max'),
+                        value: _isOneRepMax,
+                        onChanged: (value) {
+                          setState(() {
+                            _isOneRepMax = value ?? false;
+                            if (_isOneRepMax) {
+                              _selectedType = 'normal';
+                              _resetRowsForType('normal');
+                              _ensureOrmRow();
+                            }
+                          });
+                        },
+                        controlAffinity: ListTileControlAffinity.leading,
                       ),
+                      const SizedBox(height: 16),
+                      if (!_isOneRepMax)
+                        Row(
+                          children: [
+                            const Text('Set type'),
+                            const SizedBox(width: 12),
+                            DropdownButton<String>(
+                              value: _selectedType,
+                              items: const [
+                                DropdownMenuItem(
+                                  value: 'normal',
+                                  child: Text('Normal'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'drop',
+                                  child: Text('Drop set'),
+                                ),
+                              ],
+                              onChanged: _changeSetType,
+                            ),
+                          ],
+                        ),
                       const SizedBox(height: 12),
                       if (_selectedType == 'drop')
                         ..._buildDropGroups()
+                      else if (_isOneRepMax)
+                        _buildOrmEntry()
                       else
                         ..._buildNormalRows(),
                       const SizedBox(height: 8),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            _selectedType == 'drop'
-                                ? 'Drop set groups'
-                                : 'Sets',
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.add),
-                            onPressed: _selectedType == 'drop'
-                                ? _addDropGroup
-                                : _addNormalRow,
-                          ),
-                        ],
-                      ),
+                      if (!_isOneRepMax)
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              _selectedType == 'drop'
+                                  ? 'Drop set groups'
+                                  : 'Sets',
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.add),
+                              onPressed: _selectedType == 'drop'
+                                  ? _addDropGroup
+                                  : _addNormalRow,
+                            ),
+                          ],
+                        ),
                     ],
                   ),
                 ),
@@ -509,6 +548,51 @@ class _EditLogSheetState extends State<EditLogSheet> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildOrmEntry() {
+    _ensureOrmRow();
+    final row = _normalRows.first;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Enter a single weight for this 1RM.',
+            style: TextStyle(
+              fontSize: 13,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: row['weight'] as TextEditingController,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                    signed: true,
+                  ),
+                  decoration: const InputDecoration(labelText: 'Weight'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              SizedBox(
+                width: 92,
+                child: TextField(
+                  controller: row['reps'] as TextEditingController,
+                  keyboardType: TextInputType.number,
+                  readOnly: true,
+                  decoration: const InputDecoration(labelText: 'Reps'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
@@ -631,13 +715,12 @@ class _EditLogSheetState extends State<EditLogSheet> {
                     decoration: const InputDecoration(labelText: 'Reps'),
                   ),
                 ),
-                IconButton(
-                  icon: const Text(
-                    'RP',
-                    style: TextStyle(fontWeight: FontWeight.bold),
+                SizedBox(
+                  height: 40,
+                  child: FilledButton.tonal(
+                    onPressed: () => _addRestPause(index),
+                    child: const Text('RP'),
                   ),
-                  tooltip: 'Add rest pause',
-                  onPressed: () => _addRestPause(index),
                 ),
                 IconButton(
                   icon: const Icon(Icons.delete),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:gym_tracker/widgets/bottom_nav_bar.dart';
 import 'package:gym_tracker/services/db_helper.dart';
+import 'package:gym_tracker/services/exercise_grouping.dart';
 
 class AddExerciseScreen extends StatefulWidget {
   const AddExerciseScreen({super.key});
@@ -12,6 +13,9 @@ class AddExerciseScreen extends StatefulWidget {
 class _AddExerciseScreenState extends State<AddExerciseScreen> {
   int _selectedIndex = 1;
   List<Map<String, dynamic>> _exercises = [];
+  List<String> _knownGroupNames = const <String>[];
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
 
   @override
   void initState() {
@@ -21,7 +25,37 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
 
   Future<void> _loadExercises() async {
     final list = await DBHelper().getExercises();
-    setState(() => _exercises = list);
+    final groupNames = await loadExerciseGroupNames(list);
+    if (!mounted) return;
+    setState(() {
+      _exercises = list;
+      _knownGroupNames = groupNames;
+    });
+  }
+
+  Future<void> _openNewGroupScreen() async {
+    final result = await Navigator.of(context).pushNamed('/new_group');
+    if (result == true && mounted) {
+      await _loadExercises();
+    }
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  List<ExerciseGroupSection> get _filteredSections {
+    final query = _searchQuery.trim().toLowerCase();
+    final sections = buildExerciseGroupSections(
+      _exercises,
+      extraGroupNames: _knownGroupNames,
+    );
+    if (query.isEmpty) return sections;
+    return sections
+        .where((section) => section.name.toLowerCase().contains(query))
+        .toList();
   }
 
   void _onNavTap(int index) {
@@ -45,103 +79,21 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
     }
   }
 
-  Future<void> _renameExercise(Map<String, dynamic> exercise) async {
-    final controller = TextEditingController(text: exercise['name'] as String?);
-    final formKey = GlobalKey<FormState>();
-
-    final newName = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Rename exercise'),
-        content: Form(
-          key: formKey,
-          child: TextFormField(
-            controller: controller,
-            autofocus: true,
-            decoration: const InputDecoration(labelText: 'Name'),
-            validator: (value) {
-              if (value == null || value.trim().isEmpty) {
-                return 'Please enter a name';
-              }
-              return null;
-            },
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (formKey.currentState!.validate()) {
-                Navigator.of(context).pop(controller.text.trim());
-              }
-            },
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-
-    if (newName == null || newName == exercise['name']) return;
-
-    try {
-      await DBHelper().renameExercise(exercise['id'] as int, newName);
-      if (!mounted) return;
-      await _loadExercises();
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Error: $e')));
-    }
-  }
-
-  Future<void> _deleteExercise(Map<String, dynamic> exercise) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete this exercise?'),
-        content: Text(
-          '"${exercise['name']}" and every logged session/set for it will '
-          "be removed. This can't be undone.",
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-
-    try {
-      await DBHelper().deleteExercise(exercise['id'] as int);
-      if (!mounted) return;
-      await _loadExercises();
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Error: $e')));
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Add Exercise'),
+        title: const Text('Groups'),
         automaticallyImplyLeading: false,
         actions: [
           IconButton(
-            icon: const Icon(Icons.add),
+            tooltip: 'Add group',
+            icon: const Icon(Icons.grid_view),
+            onPressed: _openNewGroupScreen,
+          ),
+          IconButton(
+            tooltip: 'Add exercise',
+            icon: const Icon(Icons.add_circle_outline),
             onPressed: () async {
               final res = await Navigator.of(
                 context,
@@ -153,51 +105,53 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
       ),
       body: Padding(
         padding: const EdgeInsets.all(12.0),
-        child: _exercises.isEmpty
-            ? const Center(child: Text('No exercises yet. Tap + to add.'))
-            : ListView.builder(
-                itemCount: _exercises.length,
-                itemBuilder: (context, i) {
-                  final ex = _exercises[i];
-                  return Card(
+        child: ListView(
+          children: [
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4.0),
+              child: TextField(
+                controller: _searchController,
+                decoration: const InputDecoration(
+                  hintText: 'Search groups',
+                  prefixIcon: Icon(Icons.search),
+                  border: OutlineInputBorder(),
+                ),
+                onChanged: (value) {
+                  setState(() {
+                    _searchQuery = value;
+                  });
+                },
+              ),
+            ),
+            const SizedBox(height: 16),
+            if (_exercises.isEmpty)
+              const Center(child: Text('No exercises yet. Tap + to add.'))
+            else if (_filteredSections.isEmpty)
+              const Center(child: Text('No groups match your search.'))
+            else
+              for (final section in _filteredSections)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Card(
                     child: ListTile(
-                      title: Text(ex['name'] ?? ''),
-                      trailing: PopupMenuButton<String>(
-                        icon: const Icon(Icons.more_vert),
-                        onSelected: (value) {
-                          if (value == 'rename') {
-                            _renameExercise(ex);
-                          } else if (value == 'delete') {
-                            _deleteExercise(ex);
-                          }
-                        },
-                        itemBuilder: (context) => const [
-                          PopupMenuItem(
-                            value: 'rename',
-                            child: ListTile(
-                              leading: Icon(Icons.edit_outlined),
-                              title: Text('Rename'),
-                            ),
-                          ),
-                          PopupMenuItem(
-                            value: 'delete',
-                            child: ListTile(
-                              leading: Icon(Icons.delete_outline),
-                              title: Text('Delete'),
-                            ),
-                          ),
-                        ],
+                      title: Text(section.name),
+                      subtitle: Text(
+                        '${section.exercises.length} exercise${section.exercises.length == 1 ? '' : 's'}',
                       ),
+                      trailing: const Icon(Icons.chevron_right),
                       onTap: () async {
-                        await Navigator.of(
-                          context,
-                        ).pushNamed('/record_exercise', arguments: ex);
+                        await Navigator.of(context).pushNamed(
+                          '/exercise_groups',
+                          arguments: section.name,
+                        );
                         if (mounted) _loadExercises();
                       },
                     ),
-                  );
-                },
-              ),
+                  ),
+                ),
+          ],
+        ),
       ),
       bottomNavigationBar: BottomNavBar(
         currentIndex: _selectedIndex,

@@ -29,6 +29,7 @@ List<Map<String, dynamic>> collectValidSetEntries({
   required String type,
   required List<Map<String, dynamic>> normalRows,
   required List<DropGroup> dropGroups,
+  bool isOneRepMax = false,
 }) {
   if (type == 'drop') {
     final entries = <Map<String, dynamic>>[];
@@ -60,13 +61,16 @@ List<Map<String, dynamic>> collectValidSetEntries({
     final restPauseControllers =
         row['restPauses'] as List<TextEditingController>?;
     final weight = double.tryParse(weightController?.text.trim() ?? '') ?? 0.0;
-    final reps = int.tryParse(repsController?.text.trim() ?? '') ?? 0;
     final unit = row['unit'] as String? ?? 'kg';
+    final hasWeight = (weightController?.text.trim() ?? '').isNotEmpty;
+    final reps = isOneRepMax
+        ? 1
+        : int.tryParse(repsController?.text.trim() ?? '') ?? 0;
     // Weight may be negative (e.g. assisted dips/pull-ups, recorded as
     // negative to mean "this much assistance"); only reps must be > 0.
-    if (reps > 0) {
+    if (hasWeight && (isOneRepMax || reps > 0)) {
       final restPauses = <int>[];
-      if (restPauseControllers != null) {
+      if (!isOneRepMax && restPauseControllers != null) {
         for (final pauseController in restPauseControllers) {
           final pauseReps = int.tryParse(pauseController.text.trim()) ?? 0;
           if (pauseReps > 0) {
@@ -79,6 +83,7 @@ List<Map<String, dynamic>> collectValidSetEntries({
         'reps': reps,
         'unit': unit,
         'restPauses': restPauses,
+        'isOneRepMax': isOneRepMax,
       });
     }
   }
@@ -89,11 +94,13 @@ bool hasAnyValidSetEntries({
   required String type,
   required List<Map<String, dynamic>> normalRows,
   required List<DropGroup> dropGroups,
+  bool isOneRepMax = false,
 }) {
   return collectValidSetEntries(
     type: type,
     normalRows: normalRows,
     dropGroups: dropGroups,
+    isOneRepMax: isOneRepMax,
   ).isNotEmpty;
 }
 
@@ -128,6 +135,7 @@ String? findSetEntryError({
   required String type,
   required List<Map<String, dynamic>> normalRows,
   required List<DropGroup> dropGroups,
+  bool isOneRepMax = false,
 }) {
   if (type == 'drop') {
     for (var groupIndex = 0; groupIndex < dropGroups.length; groupIndex++) {
@@ -151,23 +159,25 @@ String? findSetEntryError({
     final repsController = row['reps'] as TextEditingController?;
     final error = _checkWeightAndReps(
       weightText: weightController?.text ?? '',
-      repsText: repsController?.text ?? '',
+      repsText: isOneRepMax ? '' : repsController?.text ?? '',
       label: 'Set ${rowIndex + 1}',
     );
     if (error != null) return error;
 
-    final restPauseControllers =
-        row['restPauses'] as List<TextEditingController>?;
-    if (restPauseControllers != null) {
-      for (
-        var pauseIndex = 0;
-        pauseIndex < restPauseControllers.length;
-        pauseIndex++
-      ) {
-        final pauseText = restPauseControllers[pauseIndex].text.trim();
-        if (pauseText.isNotEmpty && int.tryParse(pauseText) == null) {
-          return 'Set ${rowIndex + 1}, rest pause ${pauseIndex + 1}: '
-              '"$pauseText" is not a valid number of reps.';
+    if (!isOneRepMax) {
+      final restPauseControllers =
+          row['restPauses'] as List<TextEditingController>?;
+      if (restPauseControllers != null) {
+        for (
+          var pauseIndex = 0;
+          pauseIndex < restPauseControllers.length;
+          pauseIndex++
+        ) {
+          final pauseText = restPauseControllers[pauseIndex].text.trim();
+          if (pauseText.isNotEmpty && int.tryParse(pauseText) == null) {
+            return 'Set ${rowIndex + 1}, rest pause ${pauseIndex + 1}: '
+                '"$pauseText" is not a valid number of reps.';
+          }
         }
       }
     }
