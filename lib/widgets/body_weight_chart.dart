@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:gym_tracker/services/weight_format.dart';
+import 'dart:math' as math;
 
 class BodyWeightPoint {
   const BodyWeightPoint({required this.date, required this.weightKg});
@@ -211,25 +212,40 @@ class _ChartGeometry {
     : chartWidth = size.width - leftAxisWidth,
       chartHeight = size.height - bottomAxisHeight {
     final weights = points.map((p) => p.weightKg).toList();
-    var min = weights.reduce((a, b) => a < b ? a : b);
-    var max = weights.reduce((a, b) => a > b ? a : b);
-    if (min == max) {
-      min -= 1;
-      max += 1;
+    final rawMin = weights.reduce((a, b) => a < b ? a : b);
+    final rawMax = weights.reduce((a, b) => a > b ? a : b);
+    hasNegativeValues = rawMin < 0;
+
+    double min;
+    double max;
+    if (hasNegativeValues) {
+      final visibleMax = rawMax > 0 ? rawMax : 0.0;
+      final span = visibleMax - rawMin;
+      final pad = span == 0 ? 1.0 : span * 0.1;
+      min = rawMin - pad;
+      max = visibleMax + pad;
     } else {
-      final pad = (max - min) * 0.1;
-      min -= pad;
-      max += pad;
+      // Keep 0kg anchored at the bottom whenever all values are >= 0.
+      final visibleMax = rawMax <= 0 ? 1.0 : rawMax;
+      final padTop = visibleMax == 0 ? 1.0 : visibleMax * 0.1;
+      min = 0;
+      max = visibleMax + padTop;
     }
-    minWeight = min;
-    maxWeight = max;
+
+    final step = _niceStep(max - min, targetTickCount: 4);
+    minWeight = hasNegativeValues ? _floorToStep(min, step) : 0;
+    maxWeight = _ceilToStep(max, step);
+    tickStep = step;
+    if (maxWeight <= minWeight) {
+      maxWeight = minWeight + tickStep;
+    }
 
     firstMs = points.first.date.millisecondsSinceEpoch;
     final lastMs = points.last.date.millisecondsSinceEpoch;
     msSpan = (lastMs - firstMs) == 0 ? 1 : (lastMs - firstMs);
   }
 
-  static const double leftAxisWidth = 44;
+  static const double leftAxisWidth = 52;
   static const double bottomAxisHeight = 20;
 
   final List<BodyWeightPoint> points;
@@ -237,9 +253,48 @@ class _ChartGeometry {
   final double chartWidth;
   final double chartHeight;
   late final double minWeight;
-  late final double maxWeight;
+  late double maxWeight;
+  late final bool hasNegativeValues;
+  late final double tickStep;
   late final int firstMs;
   late final int msSpan;
+
+  static double _niceStep(double range, {int targetTickCount = 4}) {
+    if (range <= 0) return 1;
+    final roughStep = range / targetTickCount;
+    final magnitude = math.pow(10, (math.log(roughStep) / math.ln10).floor());
+    final residual = roughStep / magnitude;
+
+    final niceResidual = residual <= 1
+        ? 1.0
+        : residual <= 2
+        ? 2.0
+        : residual <= 2.5
+        ? 2.5
+        : residual <= 5
+        ? 5.0
+        : 10.0;
+    return niceResidual * magnitude;
+  }
+
+  static double _floorToStep(double value, double step) {
+    return (value / step).floorToDouble() * step;
+  }
+
+  static double _ceilToStep(double value, double step) {
+    return (value / step).ceilToDouble() * step;
+  }
+
+  List<double> get yTicks {
+    final ticks = <double>[];
+    var value = minWeight;
+    final limit = maxWeight + tickStep * 0.5;
+    while (value <= limit) {
+      ticks.add(value);
+      value += tickStep;
+    }
+    return ticks;
+  }
 
   Offset offsetFor(int index) {
     final p = points[index];
@@ -264,6 +319,14 @@ class _ChartGeometry {
       }
     }
     return closestIndex;
+  }
+
+  double? get zeroLineY {
+    if (!hasNegativeValues) return null;
+    final weightRange = maxWeight - minWeight;
+    if (weightRange == 0) return null;
+    final yRatio = (0 - minWeight) / weightRange;
+    return chartHeight - yRatio * chartHeight;
   }
 }
 
@@ -296,20 +359,20 @@ class _BodyWeightChartPainter extends CustomPainter {
     final maxWeight = geometry.maxWeight;
     final leftAxisWidth = _ChartGeometry.leftAxisWidth;
 
-    // Horizontal grid lines + weight labels (min / mid / max).
+    // Horizontal grid lines + weight labels at clean increments.
     final gridPaint = Paint()
       ..color = gridColor
       ..strokeWidth = 1;
     final textStyle = TextStyle(color: labelColor, fontSize: 10);
-    for (final fraction in [0.0, 0.5, 1.0]) {
+    for (final tickValue in geometry.yTicks) {
+      final fraction = (tickValue - minWeight) / (maxWeight - minWeight);
       final y = chartHeight - fraction * chartHeight;
       canvas.drawLine(
         Offset(leftAxisWidth, y),
         Offset(size.width, y),
         gridPaint,
       );
-      final label = (minWeight + fraction * (maxWeight - minWeight))
-          .toStringAsFixed(1);
+      final label = '${tickValue.toStringAsFixed(1)} kg';
       final painter = TextPainter(
         text: TextSpan(text: label, style: textStyle),
         textDirection: TextDirection.ltr,
@@ -317,6 +380,19 @@ class _BodyWeightChartPainter extends CustomPainter {
       painter.paint(
         canvas,
         Offset(0, (y - painter.height / 2).clamp(0, size.height)),
+      );
+    }
+
+    final zeroLineY = geometry.zeroLineY;
+    if (zeroLineY != null) {
+      final zeroPaint = Paint()
+        ..color = labelColor.withValues(alpha: 0.7)
+        ..strokeWidth = 1.2;
+      _drawDashedLine(
+        canvas,
+        Offset(leftAxisWidth, zeroLineY),
+        Offset(size.width, zeroLineY),
+        zeroPaint,
       );
     }
 
@@ -388,6 +464,27 @@ class _BodyWeightChartPainter extends CustomPainter {
       } else {
         canvas.drawCircle(offset, 3, dotPaint);
       }
+    }
+  }
+
+  void _drawDashedLine(Canvas canvas, Offset start, Offset end, Paint paint) {
+    const dashLength = 4.0;
+    const gapLength = 3.0;
+    final totalDistance = (end - start).distance;
+    if (totalDistance == 0) return;
+
+    final direction = (end - start) / totalDistance;
+    var distanceCovered = 0.0;
+    while (distanceCovered < totalDistance) {
+      final segmentEnd = (distanceCovered + dashLength > totalDistance)
+          ? totalDistance
+          : distanceCovered + dashLength;
+      canvas.drawLine(
+        start + direction * distanceCovered,
+        start + direction * segmentEnd,
+        paint,
+      );
+      distanceCovered += dashLength + gapLength;
     }
   }
 

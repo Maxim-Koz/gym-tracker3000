@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:gym_tracker/services/weight_format.dart';
+import 'dart:math' as math;
 
 /// A single point on the weight-progress graph: a session date paired with
 /// the heaviest weight (in kg) logged that session.
@@ -122,6 +123,8 @@ class _ChartGeometry {
   late final int dateRangeMs;
   late final double minWeight;
   late final double maxWeight;
+  late final bool hasNegativeValues;
+  late final double tickStep;
 
   _ChartGeometry({required this.points, required this.size}) {
     chartWidth = size.width - leftPadding - rightPadding;
@@ -134,17 +137,65 @@ class _ChartGeometry {
     final rawMin = weights.reduce((a, b) => a < b ? a : b);
     final rawMax = weights.reduce((a, b) => a > b ? a : b);
 
-    if (rawMin == rawMax) {
-      // Flat line: pad symmetrically so it doesn't hug an edge. Fall back
-      // to a fixed pad around 0 so a single 0 kg point isn't degenerate.
-      final pad = rawMin == 0 ? 1.0 : rawMin.abs() * 0.15;
-      minWeight = rawMin - pad;
-      maxWeight = rawMax + pad;
+    late final double plottedMin;
+    late final double plottedMax;
+    hasNegativeValues = rawMin < 0;
+    if (hasNegativeValues) {
+      // Keep 0kg visible whenever any assisted/negative set exists.
+      final visibleMax = rawMax > 0 ? rawMax : 0.0;
+      final span = visibleMax - rawMin;
+      final pad = span == 0 ? 1.0 : span * 0.15;
+      plottedMin = rawMin - pad;
+      plottedMax = visibleMax + pad;
     } else {
-      final pad = (rawMax - rawMin) * 0.15;
-      minWeight = rawMin - pad;
-      maxWeight = rawMax + pad;
+      // With non-negative data, pin 0kg to the bottom of the graph.
+      final visibleMax = rawMax <= 0 ? 1.0 : rawMax;
+      final padTop = visibleMax == 0 ? 1.0 : visibleMax * 0.15;
+      plottedMin = 0;
+      plottedMax = visibleMax + padTop;
     }
+
+    tickStep = _niceStep(plottedMax - plottedMin, targetTickCount: 4);
+    minWeight = hasNegativeValues ? _floorToStep(plottedMin, tickStep) : 0;
+    final snappedMax = _ceilToStep(plottedMax, tickStep);
+    maxWeight = snappedMax <= minWeight ? minWeight + tickStep : snappedMax;
+  }
+
+  static double _niceStep(double range, {int targetTickCount = 4}) {
+    if (range <= 0) return 1;
+    final roughStep = range / targetTickCount;
+    final magnitude = math.pow(10, (math.log(roughStep) / math.ln10).floor());
+    final residual = roughStep / magnitude;
+
+    final niceResidual = residual <= 1
+        ? 1.0
+        : residual <= 2
+        ? 2.0
+        : residual <= 2.5
+        ? 2.5
+        : residual <= 5
+        ? 5.0
+        : 10.0;
+    return niceResidual * magnitude;
+  }
+
+  static double _floorToStep(double value, double step) {
+    return (value / step).floorToDouble() * step;
+  }
+
+  static double _ceilToStep(double value, double step) {
+    return (value / step).ceilToDouble() * step;
+  }
+
+  List<double> get yTicks {
+    final ticks = <double>[];
+    var value = minWeight;
+    final limit = maxWeight + tickStep * 0.5;
+    while (value <= limit) {
+      ticks.add(value);
+      value += tickStep;
+    }
+    return ticks;
   }
 
   Offset offsetFor(WeightPoint p) {
@@ -166,7 +217,7 @@ class _ChartGeometry {
   /// Y position of the 0 kg line, or null if 0 isn't within the plotted
   /// range (e.g. every set that session was positive-weighted).
   double? get zeroLineY {
-    if (minWeight > 0 || maxWeight < 0) return null;
+    if (!hasNegativeValues) return null;
     final weightRange = maxWeight - minWeight;
     if (weightRange == 0) return null;
     final yFraction = (0 - minWeight) / weightRange;
@@ -212,8 +263,6 @@ class _WeightChartPainter extends CustomPainter {
     required this.tooltipTextColor,
   });
 
-  static const int _gridLines = 4;
-
   @override
   void paint(Canvas canvas, Size size) {
     final points = geometry.points;
@@ -228,23 +277,20 @@ class _WeightChartPainter extends CustomPainter {
       ..strokeWidth = 1;
     final labelStyle = TextStyle(color: axisColor, fontSize: 10);
 
-    // Horizontal grid lines + y-axis (weight) labels, spanning from
-    // minWeight (bottom) to maxWeight (top) - not necessarily 0 at the
-    // bottom, since weights can be negative (e.g. assisted pull-ups).
-    for (var i = 0; i <= _gridLines; i++) {
-      final fraction = i / _gridLines;
+    // Horizontal grid lines + y-axis (weight) labels at clean increments.
+    for (final tickValue in geometry.yTicks) {
+      final fraction =
+          (geometry.maxWeight - tickValue) /
+          (geometry.maxWeight - geometry.minWeight);
       final y = topPadding + fraction * chartHeight;
       canvas.drawLine(
         Offset(leftPadding, y),
         Offset(leftPadding + chartWidth, y),
         gridPaint,
       );
-      final weightValue =
-          geometry.maxWeight -
-          fraction * (geometry.maxWeight - geometry.minWeight);
       final tp = TextPainter(
         text: TextSpan(
-          text: '${weightValue.toStringAsFixed(1)} kg',
+          text: '${tickValue.toStringAsFixed(1)} kg',
           style: labelStyle,
         ),
         textDirection: TextDirection.ltr,
@@ -258,9 +304,10 @@ class _WeightChartPainter extends CustomPainter {
     final zeroY = geometry.zeroLineY;
     if (zeroY != null) {
       final zeroPaint = Paint()
-        ..color = axisColor.withOpacity(0.6)
+        ..color = axisColor.withValues(alpha: 0.6)
         ..strokeWidth = 1.2;
-      canvas.drawLine(
+      _drawDashedLine(
+        canvas,
         Offset(leftPadding, zeroY),
         Offset(leftPadding + chartWidth, zeroY),
         zeroPaint,

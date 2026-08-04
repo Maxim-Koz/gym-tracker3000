@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:gym_tracker/services/network_preferences.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -48,6 +49,7 @@ class _LoginScreenState extends State<LoginScreen> {
             .signInWithPassword(email: emailToUse, password: password);
 
         if (authResponse.user != null) {
+          await NetworkPreferences().setMobileDataAllowed(true);
           if (mounted) {
             Navigator.pushReplacementNamed(context, '/home');
           }

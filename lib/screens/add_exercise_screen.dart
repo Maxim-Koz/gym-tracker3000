@@ -125,7 +125,7 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            if (_exercises.isEmpty)
+            if (_exercises.isEmpty && _knownGroupNames.isEmpty)
               const Center(child: Text('No exercises yet. Tap + to add.'))
             else if (_filteredSections.isEmpty)
               const Center(child: Text('No groups match your search.'))

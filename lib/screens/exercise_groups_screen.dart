@@ -15,6 +15,7 @@ class _ExerciseGroupsScreenState extends State<ExerciseGroupsScreen> {
   final TextEditingController _searchController = TextEditingController();
   List<Map<String, dynamic>> _exercises = [];
   List<String> _knownGroupNames = const <String>[];
+  Map<String, List<int>> _groupExerciseOrder = const <String, List<int>>{};
   String? _selectedGroupName;
   String _searchQuery = '';
 
@@ -34,10 +35,12 @@ class _ExerciseGroupsScreenState extends State<ExerciseGroupsScreen> {
   Future<void> _loadExercises() async {
     final list = await DBHelper().getExercises();
     final groupNames = await loadExerciseGroupNames(list);
+    final groupExerciseOrder = await loadExerciseGroupOrders(groupNames);
     if (!mounted) return;
     setState(() {
       _exercises = list;
       _knownGroupNames = groupNames;
+      _groupExerciseOrder = groupExerciseOrder;
     });
   }
 
@@ -45,7 +48,49 @@ class _ExerciseGroupsScreenState extends State<ExerciseGroupsScreen> {
     return buildExerciseGroupSections(
       _exercises,
       extraGroupNames: _knownGroupNames,
+      groupExerciseOrder: _groupExerciseOrder,
     );
+  }
+
+  Future<void> _reorderExercisesInGroup(
+    ExerciseGroupSection section,
+    int oldIndex,
+    int newIndex,
+  ) async {
+    if (section.name == 'All Exercises') return;
+    if (oldIndex < 0 || oldIndex >= section.exercises.length) return;
+    if (newIndex < 0 || newIndex > section.exercises.length) return;
+
+    final updated = List<Map<String, dynamic>>.from(section.exercises);
+    if (newIndex > oldIndex) {
+      newIndex -= 1;
+    }
+    final moved = updated.removeAt(oldIndex);
+    updated.insert(newIndex, moved);
+
+    final orderedIds = <int>[];
+    for (final exercise in updated) {
+      final id = exercise['id'];
+      if (id is int) {
+        orderedIds.add(id);
+      }
+    }
+
+    setState(() {
+      _groupExerciseOrder = <String, List<int>>{
+        ..._groupExerciseOrder,
+        section.name: orderedIds,
+      };
+    });
+
+    try {
+      await saveExerciseGroupOrder(section.name, orderedIds);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not save exercise order: $e')),
+      );
+    }
   }
 
   ExerciseGroupSection? get _selectedSection {
@@ -127,6 +172,7 @@ class _ExerciseGroupsScreenState extends State<ExerciseGroupsScreen> {
         await DBHelper().setExerciseGroups(exercise['id'] as int, groups);
       }
       await renameExerciseGroupName(oldGroupName, newName);
+      await renameExerciseGroupOrder(oldGroupName, newName);
       if (!mounted) return;
       await _loadExercises();
       if (!mounted) return;
@@ -183,6 +229,7 @@ class _ExerciseGroupsScreenState extends State<ExerciseGroupsScreen> {
         await DBHelper().setExerciseGroups(exercise['id'] as int, groups);
       }
       await removeExerciseGroupName(groupName);
+      await removeExerciseGroupOrder(groupName);
       if (!mounted) return;
       await _loadExercises();
       if (!mounted) return;
@@ -221,40 +268,48 @@ class _ExerciseGroupsScreenState extends State<ExerciseGroupsScreen> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setState) {
+          final maxContentHeight = MediaQuery.of(context).size.height * 0.55;
           return AlertDialog(
             title: const Text('Add exercises'),
             content: SizedBox(
               width: double.maxFinite,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Choose exercises to add to this group'),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxHeight: maxContentHeight),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      for (final exercise in availableExercises)
-                        FilterChip(
-                          label: Text(
-                            exercise['name'] as String? ?? 'Exercise',
-                          ),
-                          selected: selectedIds.contains(exercise['id'] as int),
-                          onSelected: (selected) {
-                            setState(() {
-                              final id = exercise['id'] as int;
-                              if (selected) {
-                                selectedIds.add(id);
-                              } else {
-                                selectedIds.remove(id);
-                              }
-                            });
-                          },
-                        ),
+                      const Text('Choose exercises to add to this group'),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final exercise in availableExercises)
+                            FilterChip(
+                              label: Text(
+                                exercise['name'] as String? ?? 'Exercise',
+                              ),
+                              selected: selectedIds.contains(
+                                exercise['id'] as int,
+                              ),
+                              onSelected: (selected) {
+                                setState(() {
+                                  final id = exercise['id'] as int;
+                                  if (selected) {
+                                    selectedIds.add(id);
+                                  } else {
+                                    selectedIds.remove(id);
+                                  }
+                                });
+                              },
+                            ),
+                        ],
+                      ),
                     ],
                   ),
-                ],
+                ),
               ),
             ),
             actions: [
@@ -481,6 +536,15 @@ class _ExerciseGroupsScreenState extends State<ExerciseGroupsScreen> {
 
     if (name == null || selectedExerciseId == null) return;
 
+    final existingGroupNames = await loadExerciseGroupNames(_exercises);
+    if (existingGroupNames.contains(name)) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('That group already exists.')),
+      );
+      return;
+    }
+
     try {
       final exercise = _exercises.firstWhere(
         (item) => item['id'] == selectedExerciseId,
@@ -501,6 +565,7 @@ class _ExerciseGroupsScreenState extends State<ExerciseGroupsScreen> {
       if (!groups.contains(name)) {
         groups.add(name);
       }
+      await addExerciseGroupName(name);
       await DBHelper().setExerciseGroups(exercise['id'] as int, groups);
       if (!mounted) return;
       await _loadExercises();
@@ -515,6 +580,12 @@ class _ExerciseGroupsScreenState extends State<ExerciseGroupsScreen> {
   @override
   Widget build(BuildContext context) {
     final selectedSection = _selectedSection;
+    final isInGroup =
+        selectedSection != null && selectedSection.name != 'All Exercises';
+    final filteredExercises = selectedSection == null
+        ? const <Map<String, dynamic>>[]
+        : _getFilteredExercises(selectedSection);
+    final canReorder = isInGroup && _searchQuery.trim().isEmpty;
 
     return Scaffold(
       appBar: AppBar(
@@ -568,9 +639,7 @@ class _ExerciseGroupsScreenState extends State<ExerciseGroupsScreen> {
       ),
       body: Padding(
         padding: const EdgeInsets.all(12),
-        child: _exercises.isEmpty
-            ? const Center(child: Text('No exercises yet.'))
-            : selectedSection == null
+        child: selectedSection == null
             ? ListView(
                 children: [
                   for (final section in _sections)
@@ -589,9 +658,16 @@ class _ExerciseGroupsScreenState extends State<ExerciseGroupsScreen> {
                         ),
                       ),
                     ),
+                  if (_sections.isEmpty)
+                    const Center(
+                      child: Padding(
+                        padding: EdgeInsets.only(top: 16),
+                        child: Text('No groups yet.'),
+                      ),
+                    ),
                 ],
               )
-            : ListView(
+            : Column(
                 children: [
                   Padding(
                     padding: const EdgeInsets.only(bottom: 12),
@@ -607,60 +683,132 @@ class _ExerciseGroupsScreenState extends State<ExerciseGroupsScreen> {
                       },
                     ),
                   ),
-                  for (final ex in _getFilteredExercises(selectedSection))
-                    Card(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      child: ListTile(
-                        title: Text(ex['name'] ?? ''),
-                        onTap: () async {
-                          await Navigator.of(
-                            context,
-                          ).pushNamed('/record_exercise', arguments: ex);
-                          if (mounted) _loadExercises();
-                        },
-                        trailing: PopupMenuButton<String>(
-                          tooltip: 'Exercise actions',
-                          onSelected: (value) async {
-                            switch (value) {
-                              case 'rename':
-                                await _renameExercise(ex);
-                                break;
-                              case 'remove_from_group':
-                                await _removeExerciseFromGroup(ex);
-                                break;
-                              case 'delete':
-                                await _deleteExercise(ex);
-                                break;
-                            }
-                          },
-                          itemBuilder: (context) {
-                            final items = <PopupMenuEntry<String>>[
-                              const PopupMenuItem(
-                                value: 'rename',
-                                child: Text('Rename exercise'),
-                              ),
-                              if (selectedSection.name != 'All Exercises')
-                                const PopupMenuItem(
-                                  value: 'remove_from_group',
-                                  child: Text('Remove from group'),
+                  Expanded(
+                    child: canReorder
+                        ? ReorderableListView.builder(
+                            itemCount: filteredExercises.length,
+                            onReorder: (oldIndex, newIndex) async {
+                              await _reorderExercisesInGroup(
+                                selectedSection,
+                                oldIndex,
+                                newIndex,
+                              );
+                            },
+                            itemBuilder: (context, index) {
+                              final ex = filteredExercises[index];
+                              return Card(
+                                key: ValueKey(ex['id']),
+                                margin: const EdgeInsets.only(bottom: 8),
+                                child: ListTile(
+                                  title: Text(ex['name'] ?? ''),
+                                  onTap: () async {
+                                    await Navigator.of(context).pushNamed(
+                                      '/record_exercise',
+                                      arguments: ex,
+                                    );
+                                    if (mounted) _loadExercises();
+                                  },
+                                  trailing: PopupMenuButton<String>(
+                                    tooltip: 'Exercise actions',
+                                    onSelected: (value) async {
+                                      switch (value) {
+                                        case 'rename':
+                                          await _renameExercise(ex);
+                                          break;
+                                        case 'remove_from_group':
+                                          await _removeExerciseFromGroup(ex);
+                                          break;
+                                        case 'delete':
+                                          await _deleteExercise(ex);
+                                          break;
+                                      }
+                                    },
+                                    itemBuilder: (context) {
+                                      final items = <PopupMenuEntry<String>>[
+                                        const PopupMenuItem(
+                                          value: 'rename',
+                                          child: Text('Rename exercise'),
+                                        ),
+                                        if (selectedSection.name !=
+                                            'All Exercises')
+                                          const PopupMenuItem(
+                                            value: 'remove_from_group',
+                                            child: Text('Remove from group'),
+                                          ),
+                                        const PopupMenuItem(
+                                          value: 'delete',
+                                          child: Text('Delete exercise'),
+                                        ),
+                                      ];
+                                      return items;
+                                    },
+                                  ),
                                 ),
-                              const PopupMenuItem(
-                                value: 'delete',
-                                child: Text('Delete exercise'),
-                              ),
-                            ];
-                            return items;
-                          },
-                        ),
-                      ),
-                    ),
-                  if (_getFilteredExercises(selectedSection).isEmpty)
-                    const Center(
-                      child: Padding(
-                        padding: EdgeInsets.only(top: 16),
-                        child: Text('No matching exercises found.'),
-                      ),
-                    ),
+                              );
+                            },
+                          )
+                        : filteredExercises.isEmpty
+                        ? const Center(
+                            child: Padding(
+                              padding: EdgeInsets.only(top: 16),
+                              child: Text('No matching exercises found.'),
+                            ),
+                          )
+                        : ListView.builder(
+                            itemCount: filteredExercises.length,
+                            itemBuilder: (context, index) {
+                              final ex = filteredExercises[index];
+                              return Card(
+                                margin: const EdgeInsets.only(bottom: 8),
+                                child: ListTile(
+                                  title: Text(ex['name'] ?? ''),
+                                  onTap: () async {
+                                    await Navigator.of(context).pushNamed(
+                                      '/record_exercise',
+                                      arguments: ex,
+                                    );
+                                    if (mounted) _loadExercises();
+                                  },
+                                  trailing: PopupMenuButton<String>(
+                                    tooltip: 'Exercise actions',
+                                    onSelected: (value) async {
+                                      switch (value) {
+                                        case 'rename':
+                                          await _renameExercise(ex);
+                                          break;
+                                        case 'remove_from_group':
+                                          await _removeExerciseFromGroup(ex);
+                                          break;
+                                        case 'delete':
+                                          await _deleteExercise(ex);
+                                          break;
+                                      }
+                                    },
+                                    itemBuilder: (context) {
+                                      final items = <PopupMenuEntry<String>>[
+                                        const PopupMenuItem(
+                                          value: 'rename',
+                                          child: Text('Rename exercise'),
+                                        ),
+                                        if (selectedSection.name !=
+                                            'All Exercises')
+                                          const PopupMenuItem(
+                                            value: 'remove_from_group',
+                                            child: Text('Remove from group'),
+                                          ),
+                                        const PopupMenuItem(
+                                          value: 'delete',
+                                          child: Text('Delete exercise'),
+                                        ),
+                                      ];
+                                      return items;
+                                    },
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
                 ],
               ),
       ),
