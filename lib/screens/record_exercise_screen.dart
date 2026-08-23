@@ -7,6 +7,23 @@ import 'package:gym_tracker/services/set_entry_utils.dart';
 import 'package:gym_tracker/services/weight_format.dart';
 import 'package:gym_tracker/widgets/edit_log_sheet.dart';
 
+String inferDefaultUnitFromRecentSessions(
+  List<Map<String, dynamic>> recentSessions,
+) {
+  for (var i = recentSessions.length - 1; i >= 0; i--) {
+    final sessionEntry = recentSessions[i];
+    final sets =
+        sessionEntry['sets'] as List<Map<String, dynamic>>? ?? const [];
+    for (final set in sets) {
+      final unit = set['unit'] as String?;
+      if (unit != null && unit.isNotEmpty) {
+        return unit;
+      }
+    }
+  }
+  return 'kg';
+}
+
 class RecordExerciseScreen extends StatefulWidget {
   const RecordExerciseScreen({super.key});
 
@@ -312,6 +329,18 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
     setState(() {
       _sessions = recent;
       _bodyWeights = bodyWeights;
+      if (SessionDraftStore().get(exerciseId) == null &&
+          _selectedUnit == 'kg') {
+        _selectedUnit = inferDefaultUnitFromRecentSessions(recent);
+        for (final row in _normalRows) {
+          row['unit'] = _selectedUnit;
+        }
+        for (final group in _dropGroups) {
+          for (final row in group.rows) {
+            row.unit = _selectedUnit;
+          }
+        }
+      }
     });
   }
 
@@ -458,6 +487,7 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
                         )
                       : Text(info),
                   const SizedBox(height: 20),
+                  const SizedBox(height: 12),
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
@@ -537,6 +567,24 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
                       }
                     },
                   ),
+                  const Divider(height: 1),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        final exercise = _exercise;
+                        if (exercise == null) return;
+                        Navigator.of(innerContext).pop();
+                        await Navigator.of(
+                          context,
+                        ).pushNamed('/history/exercise', arguments: exercise);
+                        if (mounted) _loadSessions();
+                      },
+                      icon: const Icon(Icons.show_chart),
+                      label: const Text('View exercise history'),
+                    ),
+                  ),
                 ],
               ),
             );
@@ -580,403 +628,384 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
           ),
         ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Previous sessions',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Expanded(
-              flex: 2,
-              child: _sessions.isEmpty
-                  ? const Center(child: Text('No previous sessions yet.'))
-                  : ListView.builder(
-                      itemCount: _sessions.length,
-                      itemBuilder: (context, index) {
-                        final item = _sessions[index];
-                        final session = item['session'] as Map<String, dynamic>;
-                        final sets = item['sets'] as List<Map<String, dynamic>>;
-                        final date = session['timestamp'] as DateTime;
-                        final noteText = stripOneRepMaxMarker(
-                          session['note'] as String?,
-                        );
-                        return Card(
-                          margin: const EdgeInsets.symmetric(vertical: 6.0),
-                          child: Padding(
-                            padding: const EdgeInsets.all(12.0),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Text(
-                                      _formatDate(date),
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                      ),
+      body: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Previous sessions',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              if (_sessions.isEmpty)
+                const Center(child: Text('No previous sessions yet.'))
+              else ...[
+                for (final item in _sessions.take(2))
+                  _buildPreviousSessionCard(item),
+              ],
+              const SizedBox(height: 12),
+              const Text(
+                'Log new session',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      if (!_isOneRepMax) ...[
+                        const Text('Set type'),
+                        const SizedBox(width: 12),
+                        DropdownButton<String>(
+                          value: _selectedType,
+                          items: const [
+                            DropdownMenuItem(
+                              value: 'normal',
+                              child: Text('Normal'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'drop',
+                              child: Text('Drop set'),
+                            ),
+                          ],
+                          onChanged: _changeSetType,
+                        ),
+                        const SizedBox(width: 20),
+                      ],
+                      const Text('Unit'),
+                      const SizedBox(width: 12),
+                      DropdownButton<String>(
+                        value: _selectedUnit,
+                        items: const [
+                          DropdownMenuItem(value: 'kg', child: Text('kg')),
+                          DropdownMenuItem(value: 'lb', child: Text('lb')),
+                        ],
+                        onChanged: _changeUnit,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  if (_selectedType == 'drop')
+                    ...List.generate(_dropGroups.length, (groupIndex) {
+                      final group = _dropGroups[groupIndex];
+                      return Card(
+                        margin: const EdgeInsets.symmetric(vertical: 8.0),
+                        child: Padding(
+                          padding: const EdgeInsets.all(12.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text('Drop set group ${groupIndex + 1}'),
+                                  IconButton(
+                                    icon: const Icon(Icons.delete),
+                                    onPressed: () => setState(
+                                      () => _dropGroups.removeAt(groupIndex),
                                     ),
-                                    InkWell(
-                                      borderRadius: BorderRadius.circular(20),
-                                      onTap: () => showEditLogSheet(
-                                        context: context,
-                                        session: session,
-                                        sets: sets,
-                                        onChanged: _loadSessions,
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              ...List.generate(group.rows.length, (rowIndex) {
+                                final row = group.rows[rowIndex];
+                                return Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 6.0,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: TextField(
+                                          controller: row.weightController,
+                                          keyboardType:
+                                              const TextInputType.numberWithOptions(
+                                                decimal: true,
+                                                signed: true,
+                                              ),
+                                          decoration: const InputDecoration(
+                                            labelText: 'Weight',
+                                          ),
+                                        ),
                                       ),
-                                      child: const Padding(
-                                        padding: EdgeInsets.all(4.0),
-                                        child: Icon(Icons.more_vert, size: 20),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: TextField(
+                                          controller: row.repsController,
+                                          keyboardType: TextInputType.number,
+                                          decoration: const InputDecoration(
+                                            labelText: 'Reps',
+                                          ),
+                                        ),
                                       ),
-                                    ),
-                                  ],
+                                      IconButton(
+                                        icon: const Icon(Icons.delete),
+                                        onPressed: () => setState(
+                                          () => group.rows.removeAt(rowIndex),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }),
+                              const SizedBox(height: 8),
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: TextButton.icon(
+                                  icon: const Icon(Icons.add),
+                                  label: const Text('Add row'),
+                                  onPressed: () => _addDropRow(groupIndex),
                                 ),
-                                if (noteText.isNotEmpty) ...[
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    noteText,
-                                    style: const TextStyle(
-                                      fontStyle: FontStyle.italic,
-                                      color: Colors.grey,
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    })
+                  else if (_isOneRepMax)
+                    _buildOrmEntry()
+                  else
+                    ...List.generate(_normalRows.length, (index) {
+                      final row = _normalRows[index];
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 6.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    controller: row['weight'],
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                          decimal: true,
+                                          signed: true,
+                                        ),
+                                    decoration: const InputDecoration(
+                                      labelText: 'Weight',
                                     ),
                                   ),
-                                ],
-                                if (_bodyweightLabelFor(session)
-                                    case final bwLabel?) ...[
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'Bodyweight: $bwLabel',
-                                    style: const TextStyle(
-                                      fontSize: 13,
-                                      color: Colors.grey,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: TextField(
+                                    controller: row['reps'],
+                                    keyboardType: TextInputType.number,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Reps',
                                     ),
                                   ),
-                                ],
-                                const SizedBox(height: 8),
-                                ..._buildSetRows(
-                                  sets,
-                                  isOneRepMax: noteHasOneRepMax(
-                                    session['note'] as String?,
+                                ),
+                                SizedBox(
+                                  height: 40,
+                                  child: FilledButton.tonal(
+                                    onPressed: () => _addRestPause(index),
+                                    child: const Text('RP'),
+                                  ),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.delete),
+                                  onPressed: () => setState(
+                                    () => _normalRows.removeAt(index),
                                   ),
                                 ),
                               ],
                             ),
-                          ),
-                        );
-                      },
-                    ),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'Log new session',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Expanded(
-              flex: 3,
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        if (!_isOneRepMax) ...[
-                          const Text('Set type'),
-                          const SizedBox(width: 12),
-                          DropdownButton<String>(
-                            value: _selectedType,
-                            items: const [
-                              DropdownMenuItem(
-                                value: 'normal',
-                                child: Text('Normal'),
-                              ),
-                              DropdownMenuItem(
-                                value: 'drop',
-                                child: Text('Drop set'),
-                              ),
-                            ],
-                            onChanged: _changeSetType,
-                          ),
-                          const SizedBox(width: 20),
-                        ],
-                        const Text('Unit'),
-                        const SizedBox(width: 12),
-                        DropdownButton<String>(
-                          value: _selectedUnit,
-                          items: const [
-                            DropdownMenuItem(value: 'kg', child: Text('kg')),
-                            DropdownMenuItem(value: 'lb', child: Text('lb')),
-                          ],
-                          onChanged: _changeUnit,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    if (_selectedType == 'drop')
-                      ...List.generate(_dropGroups.length, (groupIndex) {
-                        final group = _dropGroups[groupIndex];
-                        return Card(
-                          margin: const EdgeInsets.symmetric(vertical: 8.0),
-                          child: Padding(
-                            padding: const EdgeInsets.all(12.0),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Text('Drop set group ${groupIndex + 1}'),
-                                    IconButton(
-                                      icon: const Icon(Icons.delete),
-                                      onPressed: () => setState(
-                                        () => _dropGroups.removeAt(groupIndex),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 8),
-                                ...List.generate(group.rows.length, (rowIndex) {
-                                  final row = group.rows[rowIndex];
+                            const SizedBox(height: 4),
+                            if ((row['restPauses']
+                                        as List<TextEditingController>?)
+                                    ?.isNotEmpty ??
+                                false)
+                              ...List.generate(
+                                (row['restPauses']
+                                        as List<TextEditingController>)
+                                    .length,
+                                (pauseIndex) {
+                                  final pauseController =
+                                      (row['restPauses']
+                                          as List<
+                                            TextEditingController
+                                          >)[pauseIndex];
                                   return Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 6.0,
-                                    ),
+                                    padding: const EdgeInsets.only(top: 6.0),
                                     child: Row(
                                       children: [
                                         Expanded(
                                           child: TextField(
-                                            controller: row.weightController,
-                                            keyboardType:
-                                                const TextInputType.numberWithOptions(
-                                                  decimal: true,
-                                                  signed: true,
-                                                ),
-                                            decoration: const InputDecoration(
-                                              labelText: 'Weight',
-                                            ),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Expanded(
-                                          child: TextField(
-                                            controller: row.repsController,
+                                            controller: pauseController,
                                             keyboardType: TextInputType.number,
-                                            decoration: const InputDecoration(
-                                              labelText: 'Reps',
+                                            decoration: InputDecoration(
+                                              labelText: 'Rest pause reps',
+                                              border: OutlineInputBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
+                                              ),
                                             ),
                                           ),
                                         ),
                                         IconButton(
-                                          icon: const Icon(Icons.delete),
-                                          onPressed: () => setState(
-                                            () => group.rows.removeAt(rowIndex),
+                                          icon: const Icon(
+                                            Icons.delete_outline,
+                                          ),
+                                          tooltip: 'Remove rest pause',
+                                          onPressed: () => _removeRestPause(
+                                            index,
+                                            pauseIndex,
                                           ),
                                         ),
                                       ],
                                     ),
                                   );
-                                }),
-                                const SizedBox(height: 8),
-                                Align(
-                                  alignment: Alignment.centerRight,
-                                  child: TextButton.icon(
-                                    icon: const Icon(Icons.add),
-                                    label: const Text('Add row'),
-                                    onPressed: () => _addDropRow(groupIndex),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      })
-                    else if (_isOneRepMax)
-                      _buildOrmEntry()
-                    else
-                      ...List.generate(_normalRows.length, (index) {
-                        final row = _normalRows[index];
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 6.0),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: TextField(
-                                      controller: row['weight'],
-                                      keyboardType:
-                                          const TextInputType.numberWithOptions(
-                                            decimal: true,
-                                            signed: true,
-                                          ),
-                                      decoration: const InputDecoration(
-                                        labelText: 'Weight',
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: TextField(
-                                      controller: row['reps'],
-                                      keyboardType: TextInputType.number,
-                                      decoration: const InputDecoration(
-                                        labelText: 'Reps',
-                                      ),
-                                    ),
-                                  ),
-                                  SizedBox(
-                                    height: 40,
-                                    child: FilledButton.tonal(
-                                      onPressed: () => _addRestPause(index),
-                                      child: const Text('RP'),
-                                    ),
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(Icons.delete),
-                                    onPressed: () => setState(
-                                      () => _normalRows.removeAt(index),
-                                    ),
-                                  ),
-                                ],
+                                },
                               ),
-                              const SizedBox(height: 4),
-                              if ((row['restPauses']
-                                          as List<TextEditingController>?)
-                                      ?.isNotEmpty ??
-                                  false)
-                                ...List.generate(
-                                  (row['restPauses']
-                                          as List<TextEditingController>)
-                                      .length,
-                                  (pauseIndex) {
-                                    final pauseController =
-                                        (row['restPauses']
-                                            as List<
-                                              TextEditingController
-                                            >)[pauseIndex];
-                                    return Padding(
-                                      padding: const EdgeInsets.only(top: 6.0),
-                                      child: Row(
-                                        children: [
-                                          Expanded(
-                                            child: TextField(
-                                              controller: pauseController,
-                                              keyboardType:
-                                                  TextInputType.number,
-                                              decoration: InputDecoration(
-                                                labelText: 'Rest pause reps',
-                                                border: OutlineInputBorder(
-                                                  borderRadius:
-                                                      BorderRadius.circular(8),
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                          IconButton(
-                                            icon: const Icon(
-                                              Icons.delete_outline,
-                                            ),
-                                            tooltip: 'Remove rest pause',
-                                            onPressed: () => _removeRestPause(
-                                              index,
-                                              pauseIndex,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    );
-                                  },
-                                ),
-                            ],
-                          ),
-                        );
-                      }),
-                    const SizedBox(height: 12),
-                    if (!_isOneRepMax)
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            _selectedType == 'drop'
-                                ? 'Drop set groups'
-                                : 'Sets',
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.add),
-                            onPressed: _selectedType == 'drop'
-                                ? _addDropGroup
-                                : _addNormalRow,
-                          ),
-                        ],
-                      ),
-                    const SizedBox(height: 8),
-                    CheckboxListTile.adaptive(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('One rep max'),
-                      value: _isOneRepMax,
-                      onChanged: (value) {
-                        setState(() {
-                          _isOneRepMax = value ?? false;
-                          if (_isOneRepMax) {
-                            _selectedType = 'normal';
-                            _rebuildRows(type: 'normal');
-                            _ensureOrmRow();
-                          }
-                        });
-                      },
-                      controlAffinity: ListTileControlAffinity.leading,
-                    ),
-                    if (!_showNoteField)
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: TextButton.icon(
-                          icon: const Icon(Icons.note_add_outlined),
-                          label: const Text('Add note'),
-                          onPressed: () =>
-                              setState(() => _showNoteField = true),
+                          ],
                         ),
-                      )
-                    else
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 8.0),
-                        child: TextField(
-                          controller: _noteController,
-                          maxLines: 3,
-                          decoration: InputDecoration(
-                            labelText: 'Note',
-                            alignLabelWithHint: true,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            suffixIcon: IconButton(
-                              icon: const Icon(Icons.close),
-                              tooltip: 'Remove note',
-                              onPressed: () => setState(() {
-                                _noteController.clear();
-                                _showNoteField = false;
-                              }),
-                            ),
+                      );
+                    }),
+                  const SizedBox(height: 12),
+                  if (!_isOneRepMax)
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          _selectedType == 'drop' ? 'Drop set groups' : 'Sets',
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.add),
+                          onPressed: _selectedType == 'drop'
+                              ? _addDropGroup
+                              : _addNormalRow,
+                        ),
+                      ],
+                    ),
+                  const SizedBox(height: 8),
+                  CheckboxListTile.adaptive(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('One rep max'),
+                    value: _isOneRepMax,
+                    onChanged: (value) {
+                      setState(() {
+                        _isOneRepMax = value ?? false;
+                        if (_isOneRepMax) {
+                          _selectedType = 'normal';
+                          _rebuildRows(type: 'normal');
+                          _ensureOrmRow();
+                        }
+                      });
+                    },
+                    controlAffinity: ListTileControlAffinity.leading,
+                  ),
+                  if (!_showNoteField)
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        icon: const Icon(Icons.note_add_outlined),
+                        label: const Text('Add note'),
+                        onPressed: () => setState(() => _showNoteField = true),
+                      ),
+                    )
+                  else
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8.0),
+                      child: TextField(
+                        controller: _noteController,
+                        maxLines: 3,
+                        decoration: InputDecoration(
+                          labelText: 'Note',
+                          alignLabelWithHint: true,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          suffixIcon: IconButton(
+                            icon: const Icon(Icons.close),
+                            tooltip: 'Remove note',
+                            onPressed: () => setState(() {
+                              _noteController.clear();
+                              _showNoteField = false;
+                            }),
                           ),
                         ),
                       ),
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: _saveSession,
-                        child: const Text('Save session'),
-                      ),
                     ),
-                  ],
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: _saveSession,
+                      child: const Text('Save session'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPreviousSessionCard(Map<String, dynamic> item) {
+    final session = item['session'] as Map<String, dynamic>;
+    final sets = item['sets'] as List<Map<String, dynamic>>;
+    final date = session['timestamp'] as DateTime;
+    final noteText = stripOneRepMaxMarker(session['note'] as String?);
+
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 6.0),
+      child: Padding(
+        padding: const EdgeInsets.all(12.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  _formatDate(date),
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                InkWell(
+                  borderRadius: BorderRadius.circular(20),
+                  onTap: () => showEditLogSheet(
+                    context: context,
+                    session: session,
+                    sets: sets,
+                    onChanged: _loadSessions,
+                  ),
+                  child: const Padding(
+                    padding: EdgeInsets.all(4.0),
+                    child: Icon(Icons.more_vert, size: 20),
+                  ),
+                ),
+              ],
+            ),
+            if (noteText.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                noteText,
+                style: const TextStyle(
+                  fontStyle: FontStyle.italic,
+                  color: Colors.grey,
                 ),
               ),
+            ],
+            if (_bodyweightLabelFor(session) case final bwLabel?) ...[
+              const SizedBox(height: 4),
+              Text(
+                'Bodyweight: $bwLabel',
+                style: const TextStyle(fontSize: 13, color: Colors.grey),
+              ),
+            ],
+            const SizedBox(height: 8),
+            ..._buildSetRows(
+              sets,
+              isOneRepMax: noteHasOneRepMax(session['note'] as String?),
             ),
           ],
         ),
@@ -1136,10 +1165,7 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
       padding: const EdgeInsets.symmetric(vertical: 2.0),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text('${weightText} ${unit ?? ''}'.trim()),
-          Text(repsDisplay),
-        ],
+        children: [Text('$weightText ${unit ?? ''}'.trim()), Text(repsDisplay)],
       ),
     );
   }

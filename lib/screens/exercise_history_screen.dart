@@ -9,8 +9,6 @@ import 'package:gym_tracker/widgets/weight_progress_chart.dart';
 
 enum _ViewMode { log, graph }
 
-enum _TimeRange { twoWeeks, oneYear, all }
-
 class ExerciseHistoryScreen extends StatefulWidget {
   const ExerciseHistoryScreen({super.key});
 
@@ -22,7 +20,6 @@ class _ExerciseHistoryScreenState extends State<ExerciseHistoryScreen> {
   List<Map<String, dynamic>> _sessions = [];
   Map<String, dynamic>? _exercise;
   _ViewMode _viewMode = _ViewMode.log;
-  _TimeRange _timeRange = _TimeRange.oneYear;
   List<Map<String, dynamic>> _bodyWeights = [];
 
   @override
@@ -91,37 +88,7 @@ class _ExerciseHistoryScreenState extends State<ExerciseHistoryScreen> {
                     },
                   ),
                 ),
-                if (_viewMode == _ViewMode.graph)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
-                    child: CupertinoSlidingSegmentedControl<_TimeRange>(
-                      groupValue: _timeRange,
-                      children: const {
-                        _TimeRange.twoWeeks: Padding(
-                          padding: EdgeInsets.symmetric(vertical: 4),
-                          child: Text(
-                            '2 weeks',
-                            style: TextStyle(fontSize: 13),
-                          ),
-                        ),
-                        _TimeRange.oneYear: Padding(
-                          padding: EdgeInsets.symmetric(vertical: 4),
-                          child: Text('1 year', style: TextStyle(fontSize: 13)),
-                        ),
-                        _TimeRange.all: Padding(
-                          padding: EdgeInsets.symmetric(vertical: 4),
-                          child: Text(
-                            'All time',
-                            style: TextStyle(fontSize: 13),
-                          ),
-                        ),
-                      },
-                      onValueChanged: (value) {
-                        if (value == null) return;
-                        setState(() => _timeRange = value);
-                      },
-                    ),
-                  ),
+                if (_viewMode == _ViewMode.graph) const SizedBox(height: 8),
                 Expanded(
                   child: _viewMode == _ViewMode.graph
                       ? _buildGraphView()
@@ -241,35 +208,14 @@ class _ExerciseHistoryScreenState extends State<ExerciseHistoryScreen> {
   }
 
   // Builds one point per session: the session's date paired with the
-  // heaviest weight (in kg) logged during that session, restricted to the
-  // currently selected time range and sorted oldest-to-newest.
+  // heaviest weight (in kg) logged during that session, sorted
+  // oldest-to-newest.
   List<WeightPoint> _buildWeightPoints() {
-    DateTime? cutoff;
-    final now = DateTime.now();
-    switch (_timeRange) {
-      case _TimeRange.twoWeeks:
-        cutoff = now.subtract(const Duration(days: 14));
-        break;
-      case _TimeRange.oneYear:
-        // Calendar year-ago, not a fixed 365-day offset - a flat
-        // Duration(days: 365) undercounts by a day for any 12-month
-        // window that happens to include a Feb 29, quietly dropping the
-        // oldest day's data in leap years. DateTime handles the Feb 29
-        // "now" edge case itself by rolling over to Mar 1 in a
-        // non-leap previous year.
-        cutoff = DateTime(now.year - 1, now.month, now.day);
-        break;
-      case _TimeRange.all:
-        cutoff = null;
-        break;
-    }
-
     final points = <WeightPoint>[];
     for (final bundle in _sessions) {
       final session = bundle['session'] as Map<String, dynamic>;
       final sets = bundle['sets'] as List<Map<String, dynamic>>;
       final date = session['timestamp'] as DateTime;
-      if (cutoff != null && date.isBefore(cutoff)) continue;
 
       bool isOneRepMax = noteHasOneRepMax(session['note'] as String?);
       double? bestKg;

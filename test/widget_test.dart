@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gym_tracker/screens/record_exercise_screen.dart';
 import 'package:gym_tracker/screens/year_history_screen.dart';
+import 'package:gym_tracker/widgets/edit_log_sheet.dart';
 import 'package:gym_tracker/widgets/workout_calendar.dart';
 
 void main() {
@@ -37,5 +39,104 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Dec'), findsOneWidget);
+  });
+
+  test('inferDefaultUnitFromRecentSessions prefers the latest logged unit', () {
+    final unit = inferDefaultUnitFromRecentSessions([
+      {
+        'session': {'id': 1},
+        'sets': [
+          {'unit': 'lb'},
+        ],
+      },
+      {
+        'session': {'id': 2},
+        'sets': [
+          {'unit': 'kg'},
+        ],
+      },
+    ]);
+
+    expect(unit, 'kg');
+  });
+
+  testWidgets('edit log sheet allows negative weights', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: EditLogSheet(
+            session: {'id': 1, 'note': null, 'timestamp': DateTime(2024, 1, 2)},
+            sets: [
+              {
+                'id': 10,
+                'weight': 70.0,
+                'reps': 5,
+                'unit': 'kg',
+                'parent_set_id': null,
+                'group_index': null,
+              },
+            ],
+            onChanged: () {},
+          ),
+        ),
+      ),
+    );
+
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is TextField &&
+            widget.decoration?.labelText == 'Weight' &&
+            widget.keyboardType ==
+                const TextInputType.numberWithOptions(
+                  decimal: true,
+                  signed: true,
+                ),
+      ),
+      findsWidgets,
+    );
+  });
+
+  testWidgets('edit log sheet uses one shared unit selector for all sets', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: EditLogSheet(
+            session: {'id': 1, 'note': null, 'timestamp': DateTime(2024, 1, 2)},
+            sets: [
+              {
+                'id': 10,
+                'weight': 70.0,
+                'reps': 5,
+                'unit': 'kg',
+                'parent_set_id': null,
+                'group_index': null,
+              },
+              {
+                'id': 11,
+                'weight': 80.0,
+                'reps': 3,
+                'unit': 'kg',
+                'parent_set_id': null,
+                'group_index': null,
+              },
+            ],
+            onChanged: () {},
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Unit'), findsOneWidget);
+    expect(find.text('kg'), findsWidgets);
+
+    await tester.tap(find.byType(DropdownButton<String>).last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('lb').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('lb'), findsWidgets);
   });
 }

@@ -55,6 +55,7 @@ class _EditLogSheetState extends State<EditLogSheet> {
   final List<Map<String, dynamic>> _normalRows = [];
   final List<DropGroup> _dropGroups = [];
   String _selectedType = 'normal';
+  String _selectedUnit = 'kg';
 
   bool _busy = false;
 
@@ -70,6 +71,7 @@ class _EditLogSheetState extends State<EditLogSheet> {
         .where((s) => s['parent_set_id'] == null)
         .map((s) => s['id'] as int)
         .toList();
+    _selectedUnit = _detectInitialUnit();
     _initRowsFromExisting();
   }
 
@@ -104,10 +106,33 @@ class _EditLogSheetState extends State<EditLogSheet> {
     return weight.toString();
   }
 
+  String _detectInitialUnit() {
+    for (final set in widget.sets) {
+      final unit = set['unit'] as String?;
+      if (unit != null && unit.isNotEmpty) return unit;
+    }
+    return 'kg';
+  }
+
+  void _changeUnit(String? value) {
+    if (value == null || value == _selectedUnit) return;
+    setState(() {
+      _selectedUnit = value;
+      for (final row in _normalRows) {
+        row['unit'] = _selectedUnit;
+      }
+      for (final group in _dropGroups) {
+        for (final row in group.rows) {
+          row.unit = _selectedUnit;
+        }
+      }
+    });
+  }
+
   Map<String, dynamic> _blankNormalRow() => {
     'weight': TextEditingController(),
     'reps': TextEditingController(),
-    'unit': 'kg',
+    'unit': _selectedUnit,
     'restPauses': <TextEditingController>[],
   };
 
@@ -188,7 +213,7 @@ class _EditLogSheetState extends State<EditLogSheet> {
       _dropGroups.clear();
 
       if (type == 'drop') {
-        _dropGroups.add(DropGroup());
+        _dropGroups.add(DropGroup()..rows.first.unit = _selectedUnit);
       } else {
         _normalRows.add(_blankNormalRow());
       }
@@ -232,11 +257,20 @@ class _EditLogSheetState extends State<EditLogSheet> {
   }
 
   void _addDropRow(int groupIndex) {
-    setState(() => _dropGroups[groupIndex].rows.add(SetEntryRow()));
+    setState(
+      () =>
+          _dropGroups[groupIndex].rows.add(SetEntryRow()..unit = _selectedUnit),
+    );
   }
 
   void _addDropGroup() {
-    setState(() => _dropGroups.add(DropGroup()));
+    setState(() {
+      final group = DropGroup();
+      for (final row in group.rows) {
+        row.unit = _selectedUnit;
+      }
+      _dropGroups.add(group);
+    });
   }
 
   Future<void> _editDate() async {
@@ -481,9 +515,10 @@ class _EditLogSheetState extends State<EditLogSheet> {
                         controlAffinity: ListTileControlAffinity.leading,
                       ),
                       const SizedBox(height: 16),
-                      if (!_isOneRepMax)
-                        Row(
-                          children: [
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          if (!_isOneRepMax) ...[
                             const Text('Set type'),
                             const SizedBox(width: 12),
                             DropdownButton<String>(
@@ -500,8 +535,20 @@ class _EditLogSheetState extends State<EditLogSheet> {
                               ],
                               onChanged: _changeSetType,
                             ),
+                            const SizedBox(width: 20),
                           ],
-                        ),
+                          const Text('Unit'),
+                          const SizedBox(width: 12),
+                          DropdownButton<String>(
+                            value: _selectedUnit,
+                            items: const [
+                              DropdownMenuItem(value: 'kg', child: Text('kg')),
+                              DropdownMenuItem(value: 'lb', child: Text('lb')),
+                            ],
+                            onChanged: _changeUnit,
+                          ),
+                        ],
+                      ),
                       const SizedBox(height: 12),
                       if (_selectedType == 'drop')
                         ..._buildDropGroups()
@@ -629,21 +676,12 @@ class _EditLogSheetState extends State<EditLogSheet> {
                           controller: row.weightController,
                           keyboardType: const TextInputType.numberWithOptions(
                             decimal: true,
+                            signed: true,
                           ),
                           decoration: const InputDecoration(
                             labelText: 'Weight',
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      DropdownButton<String>(
-                        value: row.unit,
-                        items: const [
-                          DropdownMenuItem(value: 'kg', child: Text('kg')),
-                          DropdownMenuItem(value: 'lb', child: Text('lb')),
-                        ],
-                        onChanged: (value) =>
-                            setState(() => row.unit = value ?? row.unit),
                       ),
                       const SizedBox(width: 8),
                       Expanded(
@@ -694,18 +732,10 @@ class _EditLogSheetState extends State<EditLogSheet> {
                     controller: row['weight'] as TextEditingController,
                     keyboardType: const TextInputType.numberWithOptions(
                       decimal: true,
+                      signed: true,
                     ),
                     decoration: const InputDecoration(labelText: 'Weight'),
                   ),
-                ),
-                const SizedBox(width: 8),
-                DropdownButton<String>(
-                  value: row['unit'] as String?,
-                  items: const [
-                    DropdownMenuItem(value: 'kg', child: Text('kg')),
-                    DropdownMenuItem(value: 'lb', child: Text('lb')),
-                  ],
-                  onChanged: (value) => setState(() => row['unit'] = value),
                 ),
                 const SizedBox(width: 8),
                 Expanded(

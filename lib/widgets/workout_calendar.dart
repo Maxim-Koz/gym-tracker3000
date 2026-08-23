@@ -93,7 +93,7 @@ class _WorkoutCalendarState extends State<WorkoutCalendar> {
                 borderRadius: BorderRadius.circular(20),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.08),
+                    color: Colors.black.withValues(alpha: 0.08),
                     blurRadius: 10,
                     offset: const Offset(0, 3),
                   ),
@@ -209,7 +209,7 @@ class _WorkoutCalendarState extends State<WorkoutCalendar> {
                                   ? Theme.of(context).colorScheme.primary
                                   : Theme.of(
                                       context,
-                                    ).colorScheme.surfaceVariant,
+                                    ).colorScheme.surfaceContainerHighest,
                               borderRadius: BorderRadius.circular(12),
                               border: isToday
                                   ? Border.all(

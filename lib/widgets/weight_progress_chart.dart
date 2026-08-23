@@ -370,7 +370,7 @@ class _WeightChartPainter extends CustomPainter {
       final isHighlighted = i == highlightedIndex;
       final markerColor = point.isOneRepMax ? ormPointColor : pointColor;
       if (isHighlighted) {
-        final haloPaint = Paint()..color = markerColor.withOpacity(0.25);
+        final haloPaint = Paint()..color = markerColor.withValues(alpha: 0.25);
         canvas.drawCircle(offset, 11, haloPaint);
       }
       canvas.drawCircle(
