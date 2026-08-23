@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:gym_tracker/services/weight_format.dart';
 import 'dart:math' as math;
 
+enum BodyWeightChartScaleMode { zeroBaseline, zoomed }
+
 class BodyWeightPoint {
   const BodyWeightPoint({required this.date, required this.weightKg});
 
@@ -17,9 +19,14 @@ class BodyWeightPoint {
 /// date and weight for the nearest point, mirroring the exercise progress
 /// graph's long-press behaviour.
 class BodyWeightChart extends StatefulWidget {
-  const BodyWeightChart({super.key, required this.points});
+  const BodyWeightChart({
+    super.key,
+    required this.points,
+    this.scaleMode = BodyWeightChartScaleMode.zeroBaseline,
+  });
 
   final List<BodyWeightPoint> points;
+  final BodyWeightChartScaleMode scaleMode;
 
   @override
   State<BodyWeightChart> createState() => _BodyWeightChartState();
@@ -85,7 +92,11 @@ class _BodyWeightChartState extends State<BodyWeightChart> {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final size = Size(constraints.maxWidth, constraints.maxHeight);
-          final geometry = _ChartGeometry(points: points, size: size);
+          final geometry = _ChartGeometry(
+            points: points,
+            size: size,
+            scaleMode: widget.scaleMode,
+          );
           final selectedIndex = _selectedIndex;
 
           return GestureDetector(
@@ -208,9 +219,12 @@ class _Tooltip extends StatelessWidget {
 /// Shared coordinate mapping between the painter and hit-testing, so the
 /// two never drift out of sync.
 class _ChartGeometry {
-  _ChartGeometry({required this.points, required this.size})
-    : chartWidth = size.width - leftAxisWidth,
-      chartHeight = size.height - bottomAxisHeight {
+  _ChartGeometry({
+    required this.points,
+    required this.size,
+    required this.scaleMode,
+  }) : chartWidth = size.width - leftAxisWidth,
+       chartHeight = size.height - bottomAxisHeight {
     final weights = points.map((p) => p.weightKg).toList();
     final rawMin = weights.reduce((a, b) => a < b ? a : b);
     final rawMax = weights.reduce((a, b) => a > b ? a : b);
@@ -224,16 +238,31 @@ class _ChartGeometry {
       final pad = span == 0 ? 1.0 : span * 0.1;
       min = rawMin - pad;
       max = visibleMax + pad;
-    } else {
-      // Keep 0kg anchored at the bottom whenever all values are >= 0.
+    } else if (scaleMode == BodyWeightChartScaleMode.zeroBaseline) {
+      // Default mode: keep 0kg anchored at the bottom.
       final visibleMax = rawMax <= 0 ? 1.0 : rawMax;
       final padTop = visibleMax == 0 ? 1.0 : visibleMax * 0.1;
       min = 0;
       max = visibleMax + padTop;
+    } else {
+      // Scale around observed bodyweight values, but keep a minimum visible
+      // range so small fluctuations are not visually exaggerated.
+      final span = rawMax - rawMin;
+      final baseline = rawMin == 0 ? 1.0 : rawMin.abs();
+      final pad = span == 0 ? math.max(1.0, baseline * 0.1) : span * 0.2;
+      final naturalRange = span + pad * 2;
+      const minVisibleRange = 8.0;
+      final displayRange = math.max(naturalRange, minVisibleRange);
+      final midpoint = (rawMin + rawMax) / 2;
+      min = midpoint - displayRange / 2;
+      max = midpoint + displayRange / 2;
     }
 
     final step = _niceStep(max - min, targetTickCount: 4);
-    minWeight = hasNegativeValues ? _floorToStep(min, step) : 0;
+    minWeight =
+        scaleMode == BodyWeightChartScaleMode.zeroBaseline && !hasNegativeValues
+        ? 0
+        : _floorToStep(min, step);
     maxWeight = _ceilToStep(max, step);
     tickStep = step;
     if (maxWeight <= minWeight) {
@@ -250,6 +279,7 @@ class _ChartGeometry {
 
   final List<BodyWeightPoint> points;
   final Size size;
+  final BodyWeightChartScaleMode scaleMode;
   final double chartWidth;
   final double chartHeight;
   late final double minWeight;

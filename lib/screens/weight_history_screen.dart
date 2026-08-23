@@ -6,6 +6,8 @@ import 'package:gym_tracker/widgets/body_weight_chart.dart';
 
 enum _ViewMode { log, graph }
 
+enum _GraphScaleMode { zeroBaseline, zoomed }
+
 class WeightHistoryScreen extends StatefulWidget {
   const WeightHistoryScreen({super.key});
 
@@ -18,6 +20,7 @@ class _WeightHistoryScreenState extends State<WeightHistoryScreen> {
   bool _isLoading = true;
   String? _errorMessage;
   _ViewMode _viewMode = _ViewMode.log;
+  _GraphScaleMode _graphScaleMode = _GraphScaleMode.zeroBaseline;
 
   // Converts a weight to kg so entries recorded in different units plot on
   // the same scale (mirrors the approach used for exercise weight charts).
@@ -300,7 +303,42 @@ class _WeightHistoryScreenState extends State<WeightHistoryScreen> {
             )
             .toList()
           ..sort((a, b) => a.date.compareTo(b.date));
-    return BodyWeightChart(points: points);
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: CupertinoSlidingSegmentedControl<_GraphScaleMode>(
+              groupValue: _graphScaleMode,
+              children: const {
+                _GraphScaleMode.zeroBaseline: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  child: Text('0 at bottom'),
+                ),
+                _GraphScaleMode.zoomed: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  child: Text('Zoomed'),
+                ),
+              },
+              onValueChanged: (value) {
+                if (value == null) return;
+                setState(() => _graphScaleMode = value);
+              },
+            ),
+          ),
+        ),
+        Expanded(
+          child: BodyWeightChart(
+            points: points,
+            scaleMode: _graphScaleMode == _GraphScaleMode.zeroBaseline
+                ? BodyWeightChartScaleMode.zeroBaseline
+                : BodyWeightChartScaleMode.zoomed,
+          ),
+        ),
+      ],
+    );
   }
 
   @override

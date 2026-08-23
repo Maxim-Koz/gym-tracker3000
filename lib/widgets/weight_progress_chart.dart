@@ -89,7 +89,7 @@ class _WeightProgressChartState extends State<WeightProgressChart> {
               gridColor: scheme.surfaceContainerHighest,
               lineColor: scheme.primary,
               pointColor: scheme.primary,
-              ormPointColor: Colors.white,
+              ormPointColor: scheme.error,
               tooltipBackground: scheme.inverseSurface,
               tooltipTextColor: scheme.onInverseSurface,
             ),
@@ -478,6 +478,7 @@ class _WeightChartPainter extends CustomPainter {
         oldDelegate.axisColor != axisColor ||
         oldDelegate.gridColor != gridColor ||
         oldDelegate.lineColor != lineColor ||
-        oldDelegate.pointColor != pointColor;
+        oldDelegate.pointColor != pointColor ||
+        oldDelegate.ormPointColor != ormPointColor;
   }
 }

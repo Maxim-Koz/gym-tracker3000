@@ -50,6 +50,7 @@ class _EditLogSheetState extends State<EditLogSheet> {
   late final TextEditingController _noteController;
   late DateTime _date;
   late bool _isOneRepMax;
+  late bool _ignoreInGraph;
   late final List<int> _originalTopLevelSetIds;
 
   final List<Map<String, dynamic>> _normalRows = [];
@@ -67,6 +68,7 @@ class _EditLogSheetState extends State<EditLogSheet> {
     );
     _date = widget.session['timestamp'] as DateTime;
     _isOneRepMax = noteHasOneRepMax(widget.session['note'] as String?);
+    _ignoreInGraph = noteIsIgnoredInGraph(widget.session['note'] as String?);
     _originalTopLevelSetIds = widget.sets
         .where((s) => s['parent_set_id'] == null)
         .map((s) => s['id'] as int)
@@ -363,6 +365,7 @@ class _EditLogSheetState extends State<EditLogSheet> {
       final encodedNote = encodeSessionNote(
         noteText.isEmpty ? null : noteText,
         isOneRepMax: _isOneRepMax,
+        ignoreInGraph: _ignoreInGraph,
       );
       await DBHelper().updateSession(
         _sessionId,
@@ -511,6 +514,18 @@ class _EditLogSheetState extends State<EditLogSheet> {
                               _ensureOrmRow();
                             }
                           });
+                        },
+                        controlAffinity: ListTileControlAffinity.leading,
+                      ),
+                      CheckboxListTile.adaptive(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Ignore in graph'),
+                        subtitle: const Text(
+                          'Keep this log in history, but exclude it from graph points.',
+                        ),
+                        value: _ignoreInGraph,
+                        onChanged: (value) {
+                          setState(() => _ignoreInGraph = value ?? false);
                         },
                         controlAffinity: ListTileControlAffinity.leading,
                       ),

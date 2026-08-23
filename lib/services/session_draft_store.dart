@@ -41,6 +41,7 @@ class SessionDraft {
     required this.unit,
     required this.note,
     required this.isOneRepMax,
+    required this.ignoreInGraph,
     required this.normalRows,
     required this.dropGroups,
   });
@@ -49,6 +50,7 @@ class SessionDraft {
   final String unit;
   final String note;
   final bool isOneRepMax;
+  final bool ignoreInGraph;
   final List<NormalRowDraft> normalRows;
   final List<List<DropRowDraft>> dropGroups;
 
@@ -57,7 +59,10 @@ class SessionDraft {
     final hasDropContent = dropGroups.any(
       (group) => group.any((row) => row.hasContent),
     );
-    return note.trim().isEmpty && !hasNormalContent && !hasDropContent;
+    return note.trim().isEmpty &&
+        !ignoreInGraph &&
+        !hasNormalContent &&
+        !hasDropContent;
   }
 }
 

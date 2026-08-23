@@ -113,10 +113,24 @@ class _ExerciseHistoryScreenState extends State<ExerciseHistoryScreen> {
         final session = sessionBundle['session'] as Map<String, dynamic>;
         final sets = sessionBundle['sets'] as List<Map<String, dynamic>>;
         final date = session['timestamp'] as DateTime;
+        final isOneRepMax = noteHasOneRepMax(session['note'] as String?);
         final noteText = stripOneRepMaxMarker(session['note'] as String?);
+        final ignoredInGraph = noteIsIgnoredInGraph(session['note'] as String?);
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           child: Card(
+            color: ignoredInGraph
+                ? Theme.of(context).colorScheme.surfaceContainerHighest
+                : null,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(
+                color: isOneRepMax
+                    ? Theme.of(context).colorScheme.error
+                    : Theme.of(context).dividerColor,
+                width: isOneRepMax ? 2 : 1,
+              ),
+            ),
             child: Padding(
               padding: const EdgeInsets.all(12.0),
               child: Column(
@@ -154,6 +168,17 @@ class _ExerciseHistoryScreenState extends State<ExerciseHistoryScreen> {
                       style: const TextStyle(
                         fontStyle: FontStyle.italic,
                         color: Colors.grey,
+                      ),
+                    ),
+                  ],
+                  if (ignoredInGraph) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'Ignored in graph',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Theme.of(context).colorScheme.primary,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ],
@@ -216,6 +241,9 @@ class _ExerciseHistoryScreenState extends State<ExerciseHistoryScreen> {
       final session = bundle['session'] as Map<String, dynamic>;
       final sets = bundle['sets'] as List<Map<String, dynamic>>;
       final date = session['timestamp'] as DateTime;
+      if (noteIsIgnoredInGraph(session['note'] as String?)) {
+        continue;
+      }
 
       bool isOneRepMax = noteHasOneRepMax(session['note'] as String?);
       double? bestKg;

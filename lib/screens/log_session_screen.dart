@@ -19,6 +19,26 @@ class _LogSessionScreenState extends State<LogSessionScreen> {
   final TextEditingController _noteController = TextEditingController();
   bool _showNoteField = false;
   bool _isOneRepMax = false;
+  bool _ignoreInGraph = false;
+
+  Widget _buildSessionFlagToggle({
+    required bool value,
+    required ValueChanged<bool?> onChanged,
+    required String label,
+    required String tooltip,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      waitDuration: const Duration(milliseconds: 350),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Checkbox.adaptive(value: value, onChanged: onChanged),
+          Text(label),
+        ],
+      ),
+    );
+  }
 
   @override
   void didChangeDependencies() {
@@ -34,6 +54,7 @@ class _LogSessionScreenState extends State<LogSessionScreen> {
         _noteController.clear();
         _showNoteField = false;
         _isOneRepMax = false;
+        _ignoreInGraph = false;
         _rowsInitialized = true;
       }
     }
@@ -147,6 +168,7 @@ class _LogSessionScreenState extends State<LogSessionScreen> {
     final encodedNote = encodeSessionNote(
       noteText.isEmpty ? null : noteText,
       isOneRepMax: _isOneRepMax,
+      ignoreInGraph: _ignoreInGraph,
     );
     final sessionId = await DBHelper().insertSession(
       exerciseId,
@@ -184,6 +206,7 @@ class _LogSessionScreenState extends State<LogSessionScreen> {
     _noteController.clear();
     _showNoteField = false;
     _isOneRepMax = false;
+    _ignoreInGraph = false;
     Navigator.of(context).pop(true);
     ScaffoldMessenger.of(
       context,
@@ -336,6 +359,39 @@ class _LogSessionScreenState extends State<LogSessionScreen> {
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Log new session',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                Wrap(
+                  spacing: 12,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    _buildSessionFlagToggle(
+                      value: _isOneRepMax,
+                      label: '1rm',
+                      tooltip:
+                          'Treat this as a one-rep max entry and mark it as 1RM.',
+                      onChanged: (value) =>
+                          setState(() => _isOneRepMax = value ?? false),
+                    ),
+                    _buildSessionFlagToggle(
+                      value: _ignoreInGraph,
+                      label: 'Not in graph',
+                      tooltip:
+                          'Keep this log in history, but exclude it from graph points.',
+                      onChanged: (value) =>
+                          setState(() => _ignoreInGraph = value ?? false),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
             Row(
               children: [
                 const Text('Set type'),
@@ -530,14 +586,6 @@ class _LogSessionScreenState extends State<LogSessionScreen> {
               ],
             ),
             const SizedBox(height: 8),
-            CheckboxListTile.adaptive(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('One rep max'),
-              value: _isOneRepMax,
-              onChanged: (value) =>
-                  setState(() => _isOneRepMax = value ?? false),
-              controlAffinity: ListTileControlAffinity.leading,
-            ),
             if (!_showNoteField)
               Align(
                 alignment: Alignment.centerLeft,
