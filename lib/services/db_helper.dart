@@ -83,7 +83,7 @@ class DBHelper {
       if (hasNonMobile) return true;
 
       // Only mobile data is available - respect the user's preference.
-      return NetworkPreferences().isMobileDataAllowed();
+      return await NetworkPreferences().isMobileDataAllowed();
     } catch (_) {
       // Connectivity state unknown - fall through and let the network
       // attempt itself (bounded by _networkTimeout) decide.
@@ -120,6 +120,11 @@ class DBHelper {
     if (user == null) return;
     await _cache.clearForUser(user.id);
     pendingSyncCount.value = 0;
+  }
+
+  /// Deletes the signed-in account and all synced app data in Supabase.
+  Future<void> deleteCurrentUserAccount() async {
+    await _client.rpc('delete_my_account');
   }
 
   /// Proactively fetches and caches the full exercises/sessions/sets lists

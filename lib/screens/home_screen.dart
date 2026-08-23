@@ -11,9 +11,9 @@ class HomeScreen extends StatefulWidget {
 
   // Call this on logout so a different account signing in afterwards
   // doesn't briefly show the previous user's cached username.
-  static void clearCachedUsername() {
+  static void clearCachedUsername({String? userId}) {
     _HomeScreenState._cachedUsername = null;
-    _HomeScreenState._clearPersistedUsername();
+    _HomeScreenState._clearPersistedUsername(userId: userId);
   }
 
   @override
@@ -45,11 +45,12 @@ class _HomeScreenState extends State<HomeScreen> {
     await prefs.setString(_usernameKey(userId), username);
   }
 
-  static Future<void> _clearPersistedUsername() async {
+  static Future<void> _clearPersistedUsername({String? userId}) async {
     final prefs = await SharedPreferences.getInstance();
-    final userId = Supabase.instance.client.auth.currentUser?.id;
-    if (userId == null) return;
-    await prefs.remove(_usernameKey(userId));
+    final resolvedUserId =
+        userId ?? Supabase.instance.client.auth.currentUser?.id;
+    if (resolvedUserId == null) return;
+    await prefs.remove(_usernameKey(resolvedUserId));
   }
 
   @override

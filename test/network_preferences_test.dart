@@ -40,4 +40,26 @@ void main() {
   test('defaults to disabled before login', () async {
     expect(await NetworkPreferences().isMobileDataAllowed(), isFalse);
   });
+
+  test('clears one user preference without affecting another', () async {
+    await NetworkPreferences().setMobileDataAllowed(
+      false,
+      userIdOverride: 'user-a',
+    );
+    await NetworkPreferences().setMobileDataAllowed(
+      true,
+      userIdOverride: 'user-b',
+    );
+
+    await NetworkPreferences().clearForUser('user-a');
+
+    expect(
+      await NetworkPreferences().isMobileDataAllowed(userIdOverride: 'user-a'),
+      isTrue,
+    );
+    expect(
+      await NetworkPreferences().isMobileDataAllowed(userIdOverride: 'user-b'),
+      isTrue,
+    );
+  });
 }

@@ -175,5 +175,30 @@ void main() {
       expect(aOrder, [3, 1, 2]);
       expect(bOrder, [2, 1]);
     });
+
+    test('clears only one user scoped exercise group storage', () async {
+      await addExerciseGroupName('Push', userIdOverride: 'user-a');
+      await addExerciseGroupName('Pull', userIdOverride: 'user-b');
+      await saveExerciseGroupOrder('Push', [3, 1, 2], userIdOverride: 'user-a');
+      await saveExerciseGroupOrder('Pull', [4, 5], userIdOverride: 'user-b');
+
+      await clearExerciseGroupingForUser('user-a');
+
+      expect(
+        await loadExerciseGroupNames(const [], userIdOverride: 'user-a'),
+        isEmpty,
+      );
+      expect(await loadExerciseGroupNames(const [], userIdOverride: 'user-b'), [
+        'Pull',
+      ]);
+      expect(
+        await loadExerciseGroupOrder('Push', userIdOverride: 'user-a'),
+        isEmpty,
+      );
+      expect(await loadExerciseGroupOrder('Pull', userIdOverride: 'user-b'), [
+        4,
+        5,
+      ]);
+    });
   });
 }

@@ -16,8 +16,12 @@ class NetworkPreferences {
   static const _prefKey = 'allow_mobile_data_sync';
 
   String _currentScope() {
-    final userId = Supabase.instance.client.auth.currentUser?.id;
-    return userId?.trim().isNotEmpty == true ? userId!.trim() : 'anonymous';
+    try {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      return userId?.trim().isNotEmpty == true ? userId!.trim() : 'anonymous';
+    } catch (_) {
+      return 'anonymous';
+    }
   }
 
   String _prefKeyForScope({String? userIdOverride}) {
@@ -62,6 +66,23 @@ class NetworkPreferences {
   Future<bool> isMobileDataAllowed({String? userIdOverride}) async {
     await _ensureLoaded(userIdOverride: userIdOverride);
     return allowMobileData.value;
+  }
+
+  Future<void> clearForUser(String userId) async {
+    final scope = userId.trim();
+    if (scope.isEmpty) return;
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_prefKeyForScope(userIdOverride: scope));
+    } catch (_) {
+      // Best-effort cleanup. The in-memory value is reset when the next
+      // scope is loaded or when clearLoadedState() is called.
+    }
+
+    if (_loadedScope == scope) {
+      clearLoadedState();
+    }
   }
 
   Future<void> setMobileDataAllowed(

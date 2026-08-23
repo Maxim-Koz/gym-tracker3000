@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:gym_tracker/providers/theme_provider.dart';
 import 'package:gym_tracker/screens/home_screen.dart';
 import 'package:gym_tracker/services/db_helper.dart';
+import 'package:gym_tracker/services/exercise_grouping.dart';
 import 'package:gym_tracker/services/network_preferences.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -24,6 +25,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _handleLogout() async {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
     final pending = DBHelper().pendingSyncCount.value;
     if (pending > 0) {
       final proceed = await showDialog<bool>(
@@ -54,8 +56,64 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     try {
       await DBHelper().clearLocalDataForCurrentUser();
+      if (userId != null) {
+        HomeScreen.clearCachedUsername(userId: userId);
+        await clearExerciseGroupingForUser(userId);
+        await NetworkPreferences().clearForUser(userId);
+      }
       await Supabase.instance.client.auth.signOut();
-      HomeScreen.clearCachedUsername();
+      if (mounted) {
+        Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    }
+  }
+
+  Future<void> _handleDeleteAccount() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return;
+
+    final pending = DBHelper().pendingSyncCount.value;
+    final message = StringBuffer(
+      'This will permanently delete your Supabase account and all synced workout data. ',
+    )..write('This cannot be undone.');
+    if (pending > 0) {
+      message.write(
+        '\n\nYou also have $pending unsynced local changes. They will be lost too.',
+      );
+    }
+
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete account?'),
+        content: Text(message.toString()),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Delete account'),
+          ),
+        ],
+      ),
+    );
+    if (proceed != true) return;
+
+    try {
+      await DBHelper().deleteCurrentUserAccount();
+      await DBHelper().clearLocalDataForCurrentUser();
+      HomeScreen.clearCachedUsername(userId: user.id);
+      await clearExerciseGroupingForUser(user.id);
+      await NetworkPreferences().clearForUser(user.id);
+      await Supabase.instance.client.auth.signOut();
       if (mounted) {
         Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
       }
@@ -127,6 +185,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 },
               );
             },
+          ),
+          const SizedBox(height: 32),
+          const Text(
+            'Account',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.tonalIcon(
+              onPressed: _handleDeleteAccount,
+              icon: const Icon(Icons.delete_forever),
+              label: const Text('Delete account'),
+              style: FilledButton.styleFrom(
+                foregroundColor: Theme.of(context).colorScheme.error,
+                minimumSize: const Size.fromHeight(48),
+              ),
+            ),
           ),
           const SizedBox(height: 32),
           ListTile(

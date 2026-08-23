@@ -12,8 +12,12 @@ const String _exerciseGroupNamesStorageKey = 'exercise_group_names';
 const String _exerciseGroupOrderStorageKey = 'exercise_group_order';
 
 String _currentUserScope() {
-  final userId = Supabase.instance.client.auth.currentUser?.id;
-  return userId?.trim().isNotEmpty == true ? userId!.trim() : 'anonymous';
+  try {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    return userId?.trim().isNotEmpty == true ? userId!.trim() : 'anonymous';
+  } catch (_) {
+    return 'anonymous';
+  }
 }
 
 String _scopedStorageKey({String? userIdOverride}) {
@@ -281,6 +285,23 @@ Future<void> removeExerciseGroupOrder(
   await prefs.remove(
     _scopedGroupOrderStorageKey(trimmed, userIdOverride: userIdOverride),
   );
+}
+
+Future<void> clearExerciseGroupingForUser(String userId) async {
+  final scope = userId.trim();
+  if (scope.isEmpty) return;
+
+  final prefs = await SharedPreferences.getInstance();
+  final namesKey = _scopedStorageKey(userIdOverride: scope);
+  final storedGroupNames = prefs.getStringList(namesKey) ?? const <String>[];
+
+  for (final groupName in storedGroupNames) {
+    await prefs.remove(
+      _scopedGroupOrderStorageKey(groupName, userIdOverride: scope),
+    );
+  }
+
+  await prefs.remove(namesKey);
 }
 
 Future<void> renameExerciseGroupOrder(
