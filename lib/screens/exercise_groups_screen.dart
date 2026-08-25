@@ -264,10 +264,20 @@ class _ExerciseGroupsScreenState extends State<ExerciseGroupsScreen> {
     }
 
     final selectedIds = <int>{};
+    var searchQuery = '';
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setState) {
+          final normalizedQuery = searchQuery.trim().toLowerCase();
+          final filteredExercises = normalizedQuery.isEmpty
+              ? availableExercises
+              : availableExercises.where((exercise) {
+                  final name = (exercise['name'] ?? '')
+                      .toString()
+                      .toLowerCase();
+                  return name.contains(normalizedQuery);
+                }).toList();
           final maxContentHeight = MediaQuery.of(context).size.height * 0.55;
           return AlertDialog(
             title: const Text('Add exercises'),
@@ -282,11 +292,28 @@ class _ExerciseGroupsScreenState extends State<ExerciseGroupsScreen> {
                     children: [
                       const Text('Choose exercises to add to this group'),
                       const SizedBox(height: 12),
+                      TextField(
+                        decoration: const InputDecoration(
+                          labelText: 'Search exercises',
+                          prefixIcon: Icon(Icons.search),
+                        ),
+                        onChanged: (value) {
+                          setState(() {
+                            searchQuery = value;
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      if (filteredExercises.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 8),
+                          child: Text('No exercises match your search.'),
+                        ),
                       Wrap(
                         spacing: 8,
                         runSpacing: 8,
                         children: [
-                          for (final exercise in availableExercises)
+                          for (final exercise in filteredExercises)
                             FilterChip(
                               label: Text(
                                 exercise['name'] as String? ?? 'Exercise',

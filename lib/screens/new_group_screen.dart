@@ -11,8 +11,10 @@ class NewGroupScreen extends StatefulWidget {
 
 class _NewGroupScreenState extends State<NewGroupScreen> {
   final _nameController = TextEditingController();
+  final _searchController = TextEditingController();
   final Set<int> _selectedExerciseIds = <int>{};
   List<Map<String, dynamic>> _exercises = [];
+  String _searchQuery = '';
   bool _isSaving = false;
 
   @override
@@ -24,7 +26,17 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
   @override
   void dispose() {
     _nameController.dispose();
+    _searchController.dispose();
     super.dispose();
+  }
+
+  List<Map<String, dynamic>> get _filteredExercises {
+    final query = _searchQuery.trim().toLowerCase();
+    if (query.isEmpty) return _exercises;
+    return _exercises.where((exercise) {
+      final name = (exercise['name'] ?? '').toString().toLowerCase();
+      return name.contains(query);
+    }).toList();
   }
 
   Future<void> _loadExercises() async {
@@ -114,11 +126,29 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
                   const SizedBox(height: 24),
                   const Text('Choose exercises to add to this group'),
                   const SizedBox(height: 12),
+                  TextField(
+                    controller: _searchController,
+                    decoration: const InputDecoration(
+                      labelText: 'Search exercises',
+                      prefixIcon: Icon(Icons.search),
+                    ),
+                    onChanged: (value) {
+                      setState(() {
+                        _searchQuery = value;
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  if (_filteredExercises.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8),
+                      child: Text('No exercises match your search.'),
+                    ),
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      for (final exercise in _exercises)
+                      for (final exercise in _filteredExercises)
                         FilterChip(
                           label: Text(
                             exercise['name'] as String? ?? 'Exercise',

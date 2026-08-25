@@ -200,7 +200,7 @@ class _ExerciseHistoryScreenState extends State<ExerciseHistoryScreen> {
                       child: Text('No sets recorded for this session.'),
                     )
                   else
-                    ..._buildSetRows(sets),
+                    ..._buildSetRows(sets, isOneRepMax: isOneRepMax),
                 ],
               ),
             ),
@@ -289,7 +289,10 @@ class _ExerciseHistoryScreenState extends State<ExerciseHistoryScreen> {
   // Builds the widgets for a session's sets. If any set carries a
   // group_index (i.e. it was recorded as part of a drop set), the sets are
   // clustered under a "Drop set group N" header instead of shown flat.
-  List<Widget> _buildSetRows(List<Map<String, dynamic>> sets) {
+  List<Widget> _buildSetRows(
+    List<Map<String, dynamic>> sets, {
+    bool isOneRepMax = false,
+  }) {
     final childrenByParent = <int, List<Map<String, dynamic>>>{};
     final parentRows = <Map<String, dynamic>>[];
 
@@ -309,7 +312,11 @@ class _ExerciseHistoryScreenState extends State<ExerciseHistoryScreen> {
       final children = id == null
           ? <Map<String, dynamic>>[]
           : childrenByParent[id] ?? [];
-      return _buildSingleSetRow(row, children: children);
+      return _buildSingleSetRow(
+        row,
+        children: children,
+        isOneRepMax: isOneRepMax,
+      );
     }
 
     if (!hasGroups) {
@@ -349,6 +356,7 @@ class _ExerciseHistoryScreenState extends State<ExerciseHistoryScreen> {
   Widget _buildSingleSetRow(
     Map<String, dynamic> setRow, {
     List<Map<String, dynamic>> children = const <Map<String, dynamic>>[],
+    bool isOneRepMax = false,
   }) {
     final weight = setRow['weight'];
     final unit = setRow['unit'];
@@ -360,6 +368,13 @@ class _ExerciseHistoryScreenState extends State<ExerciseHistoryScreen> {
     } else {
       weightText = weight.toString();
     }
+    final isOrmEntry =
+        isOneRepMax ||
+        setRow['is_one_rep_max'] == true ||
+        setRow['isOneRepMax'] == true;
+    final repsDisplay = isOrmEntry
+        ? '1 rep max'
+        : _formatRepsDisplay(setRow, children);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4.0),
       child: Row(
@@ -369,7 +384,7 @@ class _ExerciseHistoryScreenState extends State<ExerciseHistoryScreen> {
             '$weightText ${unit ?? ''}'.trim(),
             style: const TextStyle(fontWeight: FontWeight.w500),
           ),
-          Text(_formatRepsDisplay(setRow, children)),
+          Text(repsDisplay),
         ],
       ),
     );
