@@ -68,7 +68,6 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
         Navigator.of(context).pushNamed('/home');
         break;
       case 1:
-        // Already on add exercise
         break;
       case 2:
         Navigator.of(context).pushNamed('/weight');

@@ -50,13 +50,8 @@ void main() async {
     publishableKey: 'sb_publishable_mNNITpH_jYrlJpOlFoWJSA_Ncem4MEV',
   );
 
-  // A reinstall can restore secure-storage auth credentials (notably on iOS).
-  // On a fresh install, force a local sign-out so the app always opens logged
-  // out and requires a new login.
   await InstallSessionGuard().clearRestoredSessionOnFreshInstall();
 
-  // Retries any queued offline writes in the background for as long as the
-  // app is running, so they go out automatically once the network is back.
   SyncService().start();
 
   runApp(
@@ -77,7 +72,6 @@ class MyApp extends StatelessWidget {
 
     return MaterialApp(
       title: 'SupaBase auth',
-      // Add this line right here:
       scaffoldMessengerKey: SyncService.messengerKey,
       theme: lightTheme,
       darkTheme: darkTheme,

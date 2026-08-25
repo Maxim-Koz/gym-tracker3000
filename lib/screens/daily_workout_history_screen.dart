@@ -57,7 +57,7 @@ class _DailyWorkoutHistoryScreenState extends State<DailyWorkoutHistoryScreen> {
         _setsBySessionId = setsBySessionId;
         _isLoading = false;
       });
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
       setState(() {
         _sessions = const [];
@@ -65,7 +65,6 @@ class _DailyWorkoutHistoryScreenState extends State<DailyWorkoutHistoryScreen> {
         _setsBySessionId = const {};
         _isLoading = false;
       });
-      debugPrint('Failed to load daily workout history: $e');
     }
   }
 

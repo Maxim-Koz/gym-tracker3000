@@ -33,10 +33,8 @@ class _LoginScreenState extends State<LoginScreen> {
         final input = _usernameController.text.trim();
         final password = _passwordController.text.trim();
 
-        // Check if input is an email or username
         String emailToUse = input;
         if (!input.contains('@')) {
-          // It's a username, look up the email from profiles table
           final response = await Supabase.instance.client
               .from('profiles')
               .select('email')
@@ -92,7 +90,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  //Header area
                   const Icon(Icons.lock_outline, size: 80, color: Colors.blue),
                   const SizedBox(height: 16),
                   const Text(
@@ -106,7 +103,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 32),
 
-                  //username field
                   TextFormField(
                     controller: _usernameController,
                     keyboardType: TextInputType.text,
@@ -134,7 +130,6 @@ class _LoginScreenState extends State<LoginScreen> {
                     },
                   ),
 
-                  //password field
                   TextFormField(
                     controller: _passwordController,
                     obscureText: true,
@@ -163,7 +158,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 24),
 
-                  //Login button
                   ElevatedButton(
                     onPressed: _isLoading ? null : _handleLogin,
                     style: ElevatedButton.styleFrom(
@@ -184,7 +178,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 16),
 
-                  //To signup screen
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [

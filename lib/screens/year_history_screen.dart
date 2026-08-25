@@ -167,7 +167,6 @@ class _YearHistoryScreenState extends State<YearHistoryScreen> {
   }
 
   Widget _buildWeekdayLabels(double cellSize) {
-    // Removed 'Sun', keeping Mon, Wed, and Fri matched to their Sunday-start indices
     const weekdayLabels = {1: 'Mon', 3: 'Wed', 5: 'Fri'};
     final safeCellSize = cellSize < 2 ? 2.0 : cellSize;
     final margin = safeCellSize < 6 ? 0.5 : 1.2;

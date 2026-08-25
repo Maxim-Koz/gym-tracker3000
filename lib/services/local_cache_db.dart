@@ -198,11 +198,6 @@ class LocalCacheDb {
     );
   }
 
-  // ---------------------------------------------------------------------
-  // Temp id allocation - a monotonically decreasing counter per user,
-  // persisted so ids stay unique even across app restarts.
-  // ---------------------------------------------------------------------
-
   Future<int> nextTempId(String userId) async {
     final database = await db;
     return database.transaction((txn) async {
@@ -220,11 +215,6 @@ class LocalCacheDb {
       return idToUse;
     });
   }
-
-  // ---------------------------------------------------------------------
-  // Upserts (used both to cache fresh remote rows and to store local
-  // pending rows created while offline)
-  // ---------------------------------------------------------------------
 
   Future<void> upsertExercise({
     required String userId,

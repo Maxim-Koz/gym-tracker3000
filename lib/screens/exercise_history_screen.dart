@@ -42,16 +42,10 @@ class _ExerciseHistoryScreenState extends State<ExerciseHistoryScreen> {
       final sets = await DBHelper().getSetsForSession(session['id'] as int);
       enriched.add({'session': session, 'sets': sets});
     }
-    // Bodyweight lookups are a nice-to-have annotation on top of the
-    // sessions list, not a hard dependency - if it fails for any reason,
-    // fall back to an empty list rather than let it stop the rest of this
-    // screen from ever rendering.
     List<Map<String, dynamic>> bodyWeights = const [];
     try {
       bodyWeights = await DBHelper().getBodyWeights();
-    } catch (e) {
-      debugPrint('Failed to load body weights: $e');
-    }
+    } catch (_) {}
     if (!mounted) return;
     setState(() {
       _sessions = enriched;

@@ -120,9 +120,6 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
     super.dispose();
   }
 
-  /// Snapshots whatever is currently typed into the log-new-session form
-  /// and stashes it so it can be restored if the user comes back to this
-  /// exercise after navigating away without saving.
   void _saveDraft() {
     final exerciseId = _exercise?['id'] as int?;
     if (exerciseId == null) return;
@@ -337,16 +334,10 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
       recent.add({'session': session, 'sets': sets});
     }
 
-    // Bodyweight lookups are a nice-to-have annotation on top of the
-    // sessions list, not a hard dependency - if it fails for any reason,
-    // fall back to an empty list rather than let it stop the sessions
-    // preview (which we already have) from ever rendering.
     List<Map<String, dynamic>> bodyWeights = const [];
     try {
       bodyWeights = await DBHelper().getBodyWeights();
-    } catch (e) {
-      debugPrint('Failed to load body weights: $e');
-    }
+    } catch (_) {}
 
     if (!mounted) return;
     setState(() {
@@ -483,7 +474,6 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (sheetContext) {
-        // We rename the inner context to 'innerContext' to avoid shadowing and allow proper mounted checks.
         return StatefulBuilder(
           builder: (innerContext, setSheetState) {
             return Padding(
@@ -538,7 +528,6 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
                             data['metadata'] = updated;
                           }
 
-                          // 1. Check if the main screen is still mounted
                           if (mounted) {
                             setState(() {
                               _exercise = {..._exercise!, 'data': data};
@@ -546,7 +535,6 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
                           }
                         }
 
-                        // 2. Check if the bottom sheet is still mounted before setting sheet state
                         if (!innerContext.mounted) return;
                         setSheetState(() => info = updated);
                       },
@@ -580,9 +568,6 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
                           });
                         }
                       } catch (e) {
-                        // Revert the switch and let the user know it didn't
-                        // stick, rather than showing a state that wasn't
-                        // actually saved.
                         setSheetState(() => includeBodyweight = !value);
                         if (innerContext.mounted) {
                           ScaffoldMessenger.of(

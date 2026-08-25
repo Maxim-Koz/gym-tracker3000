@@ -2,9 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:gym_tracker/services/db_helper.dart';
 import 'package:gym_tracker/services/exercise_grouping.dart';
 
-/// Creates a new exercise. Deliberately minimal - just a name and whether
-/// to include bodyweight - logging an actual session happens afterwards
-/// from RecordExerciseScreen, not here.
 class NewExerciseScreen extends StatefulWidget {
   const NewExerciseScreen({super.key});
 
@@ -55,9 +52,6 @@ class _NewExerciseScreenState extends State<NewExerciseScreen> {
         return;
       }
 
-      // Type only matters once the user starts logging sets, so it isn't
-      // asked for here - every exercise starts as 'normal' and can be
-      // changed later if that ever needs to be exposed.
       final groups = _selectedGroups.toList()..sort();
       await DBHelper().insertExercise(name, 'normal', {
         'groups': groups,

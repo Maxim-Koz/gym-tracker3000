@@ -34,7 +34,6 @@ class _WeightScreenState extends State<WeightScreen> {
         Navigator.of(context).pushNamed('/add_exercise');
         break;
       case 2:
-        // Already on weight
         break;
       case 3:
         Navigator.of(context).pushNamed('/settings');

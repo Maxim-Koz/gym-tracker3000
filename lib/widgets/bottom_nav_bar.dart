@@ -1,12 +1,5 @@
 import 'package:flutter/material.dart';
 
-/// App-wide bottom navigation: Home, Add Exercise, Weight, Settings.
-///
-/// NOTE: this file was not part of the uploaded project - your real
-/// bottom_nav_bar.dart may already exist with different styling/icons. If
-/// so, just add the 'Weight' BottomNavigationBarItem below in the same
-/// position (index 2, between Add Exercise and Settings) rather than
-/// replacing the whole file.
 class BottomNavBar extends StatelessWidget {
   const BottomNavBar({
     super.key,

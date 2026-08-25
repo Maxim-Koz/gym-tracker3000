@@ -9,8 +9,6 @@ import 'package:gym_tracker/widgets/workout_calendar.dart';
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
-  // Call this on logout so a different account signing in afterwards
-  // doesn't briefly show the previous user's cached username.
   static void clearCachedUsername({String? userId}) {
     _HomeScreenState._cachedUsername = null;
     _HomeScreenState._clearPersistedUsername(userId: userId);
@@ -21,9 +19,6 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  // Cached across HomeScreen instances (a new one is pushed each time the
-  // bottom nav bar returns here), so we don't flash the 'there' placeholder
-  // every time this screen is rebuilt while the real username loads.
   static String? _cachedUsername;
 
   int _selectedIndex = 0;
@@ -57,12 +52,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _loadUsername();
-    // Run independently rather than one after the other - migration is
-    // now offline-safe on its own (see DataMigrationService), but even so,
-    // the calendar shouldn't have to wait on it: a slow migration (a
-    // large legacy import, for instance) shouldn't leave the calendar
-    // sitting blank in the meantime when it has nothing to do with it.
-    DataMigrationService().migrateIfNeeded(); // ignore: discarded_futures
+    DataMigrationService().migrateIfNeeded();
     _loadLoggedDates();
   }
 
@@ -113,12 +103,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final dates = await DBHelper().getLoggedDates();
       if (!mounted) return;
       setState(() => _loggedDates = dates.toSet());
-    } catch (e) {
-      // Leave whatever was already showing (possibly nothing, on first
-      // load) rather than crash the home screen over a calendar that
-      // failed to load - the full year view has its own retry affordance.
-      debugPrint('Failed to load logged dates: $e');
-    }
+    } catch (_) {}
   }
 
   void _onNavTap(int index) {
@@ -128,7 +113,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
     switch (index) {
       case 0:
-        // Already on home
         break;
       case 1:
         Navigator.of(context).pushNamed('/add_exercise');

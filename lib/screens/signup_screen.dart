@@ -94,7 +94,6 @@ class _SignupScreenState extends State<SignupScreen> {
         );
 
         if (response.user != null) {
-          // Store username in profiles table
           await Supabase.instance.client.from('profiles').insert({
             'id': response.user!.id,
             'username': _usernameController.text.trim(),
@@ -110,7 +109,6 @@ class _SignupScreenState extends State<SignupScreen> {
                 backgroundColor: Colors.green,
               ),
             );
-            // Navigate back to login screen
             Navigator.pushReplacementNamed(context, '/');
           }
         }
@@ -152,7 +150,6 @@ class _SignupScreenState extends State<SignupScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // Header area
                   const Icon(
                     Icons.person_add_outlined,
                     size: 80,
@@ -170,7 +167,6 @@ class _SignupScreenState extends State<SignupScreen> {
                   ),
                   const SizedBox(height: 32),
 
-                  // Email field
                   TextFormField(
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
@@ -194,7 +190,6 @@ class _SignupScreenState extends State<SignupScreen> {
                   ),
                   const SizedBox(height: 16),
 
-                  // Username field
                   TextFormField(
                     controller: _usernameController,
                     keyboardType: TextInputType.text,
@@ -218,7 +213,6 @@ class _SignupScreenState extends State<SignupScreen> {
                   ),
                   const SizedBox(height: 16),
 
-                  // Password field
                   TextFormField(
                     controller: _passwordController,
                     obscureText: _obscurePassword,
@@ -255,7 +249,6 @@ class _SignupScreenState extends State<SignupScreen> {
                   ),
                   const SizedBox(height: 8),
 
-                  // Password requirements hint
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: Text(
@@ -268,7 +261,6 @@ class _SignupScreenState extends State<SignupScreen> {
                   ),
                   const SizedBox(height: 16),
 
-                  // Confirm password field
                   TextFormField(
                     controller: _confirmPasswordController,
                     obscureText: _obscureConfirmPassword,
@@ -305,7 +297,6 @@ class _SignupScreenState extends State<SignupScreen> {
                   ),
                   const SizedBox(height: 24),
 
-                  // Sign up button
                   ElevatedButton(
                     onPressed: _isLoading ? null : _handleSignup,
                     style: ElevatedButton.styleFrom(
@@ -337,7 +328,6 @@ class _SignupScreenState extends State<SignupScreen> {
                   ),
                   const SizedBox(height: 16),
 
-                  // To login screen
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [

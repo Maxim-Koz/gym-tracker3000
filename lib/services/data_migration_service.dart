@@ -4,15 +4,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'db_helper.dart';
 import 'legacy_local_db.dart';
 
-/// Runs once per account, the first time that account logs in on a device
-/// that still has data in the old local SQLite database. It copies every
-/// exercise/session/set up to Supabase, then marks the account as migrated
-/// (via `profiles.local_data_migrated`) so it never runs again for that
-/// account, and other devices won't try to re-import the same data.
-///
-/// Safe to call on every app start / every login — it's a fast no-op once
-/// migration has completed, and skips entirely on a device with no local
-/// data (e.g. a second device, or a fresh install).
 class DataMigrationService {
   static final DataMigrationService _instance =
       DataMigrationService._internal();
@@ -27,21 +18,10 @@ class DataMigrationService {
     final user = _client.auth.currentUser;
     if (user == null) return;
 
-    // Fast local connectivity check first - this method's Supabase calls
-    // have no inherent timeout of their own, so without this, calling it
-    // while offline could hang for a long OS-level timeout (well past
-    // _networkTimeout below) before its catch block ever ran, blocking
-    // whatever awaited it (e.g. the home screen's calendar) the whole
-    // time. Nothing here can succeed offline anyway, so just skip it -
-    // it'll naturally run again next launch once there's a connection.
     try {
       final results = await Connectivity().checkConnectivity();
       if (results.every((r) => r == ConnectivityResult.none)) return;
-    } catch (_) {
-      // Connectivity state unknown - fall through and let the timeouts
-      // below decide instead of blocking the caller indefinitely either
-      // way.
-    }
+    } catch (_) {}
 
     try {
       final profile = await _client
@@ -56,9 +36,6 @@ class DataMigrationService {
 
       final legacy = LegacyLocalDb();
       if (!await legacy.hasAnyLocalData()) {
-        // Nothing on this device to migrate (fresh install / new device).
-        // Still mark the account as migrated so future logins don't keep
-        // checking, unless the profile row can't be found for some reason.
         if (profile != null) {
           await _client
               .from('profiles')
@@ -104,8 +81,6 @@ class DataMigrationService {
             legacySession['id'] as int,
           );
 
-          // Insert parentless sets first so we know each new set's id
-          // before inserting the rest-pause children that reference it.
           final parents = legacySets
               .where((s) => s['parent_set_id'] == null)
               .toList();
@@ -136,8 +111,6 @@ class DataMigrationService {
           }
         }
 
-        // Mark this exercise as fully migrated so a retry after a later
-        // failure doesn't duplicate its sessions/sets.
         final updatedData = Map<String, dynamic>.from(data)
           ..['_migrated'] = true;
         await _client
@@ -152,11 +125,6 @@ class DataMigrationService {
           .update({'local_data_migrated': true})
           .eq('id', user.id)
           .timeout(_networkTimeout);
-    } catch (e) {
-      // Don't block login on a failed migration — the flag is only set on
-      // full success, so this will simply be retried next launch.
-      // ignore: avoid_print
-      print('Local data migration failed, will retry next launch: $e');
-    }
+    } catch (_) {}
   }
 }
