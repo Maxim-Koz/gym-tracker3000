@@ -15,6 +15,7 @@ import 'package:gym_tracker/screens/weight_history_screen.dart';
 import 'package:gym_tracker/screens/settings_screen.dart';
 import 'package:gym_tracker/screens/history_screen.dart';
 import 'package:gym_tracker/screens/exercise_history_screen.dart';
+import 'package:gym_tracker/screens/daily_workout_history_screen.dart';
 import 'package:gym_tracker/screens/year_history_screen.dart';
 import 'package:gym_tracker/screens/workout_stats_screen.dart';
 import 'package:gym_tracker/providers/theme_provider.dart';
@@ -99,6 +100,7 @@ class MyApp extends StatelessWidget {
         '/log_session': (context) => const LogSessionScreen(),
         '/history': (context) => const HistoryScreen(),
         '/history/exercise': (context) => const ExerciseHistoryScreen(),
+        '/history/day': (context) => const DailyWorkoutHistoryScreen(),
         '/history/year': (context) => const YearHistoryScreen(),
         '/stats': (context) => const WorkoutStatsScreen(),
         '/weight': (context) => const WeightScreen(),

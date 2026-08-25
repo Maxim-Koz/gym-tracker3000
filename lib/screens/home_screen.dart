@@ -162,7 +162,15 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            WorkoutCalendar(month: DateTime.now(), loggedDates: _loggedDates),
+            WorkoutCalendar(
+              month: DateTime.now(),
+              loggedDates: _loggedDates,
+              onDateSelected: (date) {
+                Navigator.of(
+                  context,
+                ).pushNamed('/history/day', arguments: {'date': date});
+              },
+            ),
             const SizedBox(height: 12),
             ElevatedButton.icon(
               onPressed: () => Navigator.of(context).pushNamed('/history/year'),

@@ -6,11 +6,13 @@ class WorkoutCalendar extends StatefulWidget {
     required this.month,
     required this.loggedDates,
     this.compact = false,
+    this.onDateSelected,
   });
 
   final DateTime month;
   final Set<DateTime> loggedDates;
   final bool compact;
+  final void Function(DateTime date)? onDateSelected;
 
   @override
   State<WorkoutCalendar> createState() => _WorkoutCalendarState();
@@ -174,6 +176,9 @@ class _WorkoutCalendarState extends State<WorkoutCalendar> {
                             date.day == DateTime.now().day;
 
                         return GestureDetector(
+                          onTap: isLogged
+                              ? () => widget.onDateSelected?.call(date)
+                              : null,
                           onLongPressStart: (details) {
                             final renderBox =
                                 _calendarKey.currentContext?.findRenderObject()

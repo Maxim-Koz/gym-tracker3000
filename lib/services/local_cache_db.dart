@@ -434,6 +434,26 @@ class LocalCacheDb {
     return rows.map(_decodeSession).toList();
   }
 
+  Future<List<Map<String, dynamic>>> getSessionsForDate(
+    String userId,
+    DateTime day,
+  ) async {
+    final database = await db;
+    final start = DateTime(day.year, day.month, day.day).millisecondsSinceEpoch;
+    final end = DateTime(
+      day.year,
+      day.month,
+      day.day + 1,
+    ).millisecondsSinceEpoch;
+    final rows = await database.query(
+      'cached_sessions',
+      where: 'user_id = ? AND deleted = 0 AND timestamp >= ? AND timestamp < ?',
+      whereArgs: [userId, start, end],
+      orderBy: 'timestamp ASC',
+    );
+    return rows.map(_decodeSession).toList();
+  }
+
   Future<List<Map<String, dynamic>>> getSetsForSession(
     String userId,
     int sessionId,

@@ -22,6 +22,27 @@ void main() {
     expect(find.text('10'), findsWidgets);
   });
 
+  testWidgets('calendar notifies when a logged day is tapped', (tester) async {
+    DateTime? selectedDate;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: WorkoutCalendar(
+            month: DateTime(2024, 5),
+            loggedDates: {DateTime(2024, 5, 10)},
+            onDateSelected: (date) => selectedDate = date,
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('10').last);
+    await tester.pump();
+
+    expect(selectedDate, DateTime(2024, 5, 10));
+  });
+
   testWidgets('year history screen renders the contribution grid', (
     tester,
   ) async {

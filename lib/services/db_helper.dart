@@ -1098,6 +1098,38 @@ class DBHelper {
     return _cache.getAllSessions(userId);
   }
 
+  Future<List<Map<String, dynamic>>> getSessionsForDate(DateTime day) async {
+    final userId = _userId;
+    final cached = await _cache.getSessionsForDate(userId, day);
+    if (!await _hasNetwork()) {
+      return cached;
+    }
+
+    final start = DateTime(day.year, day.month, day.day).toUtc();
+    final end = DateTime(day.year, day.month, day.day + 1).toUtc();
+    try {
+      final rows = await _client
+          .from('sessions')
+          .select()
+          .eq('user_id', userId)
+          .gte('timestamp', start.toIso8601String())
+          .lt('timestamp', end.toIso8601String())
+          .order('timestamp', ascending: true)
+          .timeout(_networkTimeout);
+
+      final remoteRows = rows
+          .map((s) => _withParsedTimestamp(s as Map))
+          .toList();
+      if (remoteRows.isNotEmpty) {
+        return remoteRows;
+      }
+    } catch (_) {
+      // Fall back to the local cache below when the network request fails.
+    }
+
+    return cached;
+  }
+
   Future<void> _refreshAllSessionsFromRemote(String userId) async {
     try {
       final rows = await _client
