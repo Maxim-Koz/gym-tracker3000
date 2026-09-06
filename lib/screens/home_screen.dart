@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:gym_tracker/services/data_migration_service.dart';
 import 'package:gym_tracker/services/db_helper.dart';
 import 'package:gym_tracker/widgets/bottom_nav_bar.dart';
+import 'package:gym_tracker/widgets/tutorial_theme.dart';
 import 'package:gym_tracker/widgets/workout_calendar.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -12,6 +13,17 @@ class HomeScreen extends StatefulWidget {
   static void clearCachedUsername({String? userId}) {
     _HomeScreenState._cachedUsername = null;
     _HomeScreenState._clearPersistedUsername(userId: userId);
+  }
+
+  static String _miniTutorialSeenKey(String userId) =>
+      'mini_tutorial_seen_$userId';
+
+  static Future<void> resetMiniTutorialSeen({String? userId}) async {
+    final resolvedUserId =
+        userId ?? Supabase.instance.client.auth.currentUser?.id;
+    if (resolvedUserId == null) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_miniTutorialSeenKey(resolvedUserId));
   }
 
   @override
@@ -24,9 +36,9 @@ class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
   String _username = 'there';
   Set<DateTime> _loggedDates = <DateTime>{};
+  bool _isTutorialFlowLaunching = false;
 
   static String _usernameKey(String userId) => 'cached_username_$userId';
-
   static Future<String?> _readPersistedUsername(String userId) async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString(_usernameKey(userId));
@@ -54,6 +66,105 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadUsername();
     DataMigrationService().migrateIfNeeded();
     _loadLoggedDates();
+    _maybeShowMiniTutorial();
+  }
+
+  Future<void> _maybeShowMiniTutorial() async {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    final seen =
+        prefs.getBool(HomeScreen._miniTutorialSeenKey(userId)) ?? false;
+    if (seen) return;
+
+    await prefs.setBool(HomeScreen._miniTutorialSeenKey(userId), true);
+    if (!mounted) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _isTutorialFlowLaunching) return;
+      _startMiniTutorialFlow();
+    });
+  }
+
+  Future<void> _startMiniTutorialFlow() async {
+    if (_isTutorialFlowLaunching) return;
+    _isTutorialFlowLaunching = true;
+    final shouldStart = await _showTutorialIntroDialog();
+    if (!mounted || shouldStart != true) {
+      _isTutorialFlowLaunching = false;
+      return;
+    }
+    await Navigator.of(context).pushNamed(
+      '/add_exercise',
+      arguments: {'showTutorial': true, 'tutorialStartStep': 0},
+    );
+    _isTutorialFlowLaunching = false;
+  }
+
+  Future<bool?> _showTutorialIntroDialog() {
+    return showGeneralDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      barrierLabel: 'Tutorial intro',
+      barrierColor: TutorialThemeTokens.overlay,
+      pageBuilder: (dialogContext, animation, secondaryAnimation) {
+        final width = MediaQuery.of(dialogContext).size.width;
+        return SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: width > 640 ? 560 : width - 20,
+              ),
+              child: TutorialPanel(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Welcome Tutorial',
+                      style: TutorialThemeTokens.titleStyle,
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'This short tutorial will walk you through groups, exercises, '
+                      'logging a workout, and where to view your logs.',
+                      style: TutorialThemeTokens.bodyStyle,
+                    ),
+                    const SizedBox(height: 14),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(
+                          onPressed: () =>
+                              Navigator.of(dialogContext).pop(false),
+                          style: TextButton.styleFrom(
+                            foregroundColor: TutorialThemeTokens.title,
+                            textStyle: TutorialThemeTokens.buttonStyle,
+                          ),
+                          child: const Text('Skip'),
+                        ),
+                        const SizedBox(width: 8),
+                        FilledButton(
+                          onPressed: () =>
+                              Navigator.of(dialogContext).pop(true),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: TutorialThemeTokens.button,
+                            foregroundColor: Colors.white,
+                            textStyle: TutorialThemeTokens.buttonStyle,
+                          ),
+                          child: const Text('Start'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _loadUsername() async {

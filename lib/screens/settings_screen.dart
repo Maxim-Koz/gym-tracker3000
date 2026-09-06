@@ -126,6 +126,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _handleShowTutorialAgain() async {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return;
+    await HomeScreen.resetMiniTutorialSeen(userId: userId);
+    if (!mounted) return;
+    Navigator.of(context).pushReplacementNamed('/home');
+  }
+
   @override
   Widget build(BuildContext context) {
     final themeProvider = context.watch<ThemeProvider>();
@@ -185,6 +193,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 },
               );
             },
+          ),
+          const SizedBox(height: 32),
+          const Text(
+            'Help',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          ListTile(
+            title: const Text('Show tutorial again'),
+            subtitle: const Text('Open the quick start tutorial on Home.'),
+            trailing: const Icon(Icons.school_outlined),
+            onTap: _handleShowTutorialAgain,
           ),
           const SizedBox(height: 32),
           const Text(
