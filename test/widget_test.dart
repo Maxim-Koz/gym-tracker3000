@@ -81,6 +81,44 @@ void main() {
     expect(unit, 'kg');
   });
 
+  testWidgets('reorderable list callback reorders items', (tester) async {
+    final items = <String>['Push', 'Pull', 'Legs'];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StatefulBuilder(
+          builder: (context, setState) {
+            return Scaffold(
+              body: ReorderableListView(
+                onReorder: (oldIndex, newIndex) {
+                  setState(() {
+                    if (oldIndex < newIndex) {
+                      newIndex -= 1;
+                    }
+                    final item = items.removeAt(oldIndex);
+                    items.insert(newIndex, item);
+                  });
+                },
+                children: [
+                  for (final item in items)
+                    ListTile(key: ValueKey(item), title: Text(item)),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+
+    final list = tester.widget<ReorderableListView>(
+      find.byType(ReorderableListView),
+    );
+    list.onReorder?.call(0, 2);
+    await tester.pump();
+
+    expect(items, ['Pull', 'Push', 'Legs']);
+  });
+
   testWidgets('edit log sheet allows negative weights', (tester) async {
     await tester.pumpWidget(
       MaterialApp(

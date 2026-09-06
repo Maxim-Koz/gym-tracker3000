@@ -10,6 +10,7 @@ class ExerciseGroupSection {
 
 const String _exerciseGroupNamesStorageKey = 'exercise_group_names';
 const String _exerciseGroupOrderStorageKey = 'exercise_group_order';
+const String _exerciseGroupNameOrderStorageKey = 'exercise_group_name_order';
 
 String _currentUserScope() {
   try {
@@ -32,6 +33,13 @@ String _scopedGroupOrderStorageKey(String groupName, {String? userIdOverride}) {
       ? userIdOverride!.trim()
       : _currentUserScope();
   return '$_exerciseGroupOrderStorageKey::$scope::$groupName';
+}
+
+String _scopedGroupNameOrderStorageKey({String? userIdOverride}) {
+  final scope = userIdOverride?.trim().isNotEmpty == true
+      ? userIdOverride!.trim()
+      : _currentUserScope();
+  return '$_exerciseGroupNameOrderStorageKey::$scope';
 }
 
 int? _toInt(Object? value) {
@@ -196,6 +204,81 @@ Future<void> renameExerciseGroupName(
   );
 }
 
+Future<List<String>> loadExerciseGroupNameOrder({
+  String? userIdOverride,
+}) async {
+  final prefs = await SharedPreferences.getInstance();
+  final stored =
+      prefs.getStringList(
+        _scopedGroupNameOrderStorageKey(userIdOverride: userIdOverride),
+      ) ??
+      const <String>[];
+
+  final ordered = <String>[];
+  final seen = <String>{};
+  for (final value in stored) {
+    final name = value.trim();
+    if (name.isEmpty || seen.contains(name)) continue;
+    seen.add(name);
+    ordered.add(name);
+  }
+  return ordered;
+}
+
+Future<void> saveExerciseGroupNameOrder(
+  List<String> groupNames, {
+  String? userIdOverride,
+}) async {
+  final prefs = await SharedPreferences.getInstance();
+  final unique = <String>[];
+  final seen = <String>{};
+  for (final name in groupNames) {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty || seen.contains(trimmed)) continue;
+    seen.add(trimmed);
+    unique.add(trimmed);
+  }
+
+  await prefs.setStringList(
+    _scopedGroupNameOrderStorageKey(userIdOverride: userIdOverride),
+    unique,
+  );
+}
+
+Future<void> renameExerciseGroupNameOrder(
+  String oldName,
+  String newName, {
+  String? userIdOverride,
+}) async {
+  final oldTrimmed = oldName.trim();
+  final newTrimmed = newName.trim();
+  if (oldTrimmed.isEmpty || newTrimmed.isEmpty || oldTrimmed == newTrimmed) {
+    return;
+  }
+
+  final currentOrder = await loadExerciseGroupNameOrder(
+    userIdOverride: userIdOverride,
+  );
+  final updated = currentOrder
+      .map((name) => name == oldTrimmed ? newTrimmed : name)
+      .toList();
+  await saveExerciseGroupNameOrder(updated, userIdOverride: userIdOverride);
+}
+
+Future<void> removeExerciseGroupNameOrder(
+  String groupName, {
+  String? userIdOverride,
+}) async {
+  final trimmed = groupName.trim();
+  if (trimmed.isEmpty) return;
+
+  final currentOrder = await loadExerciseGroupNameOrder(
+    userIdOverride: userIdOverride,
+  );
+  final updated = currentOrder.where((name) => name != trimmed).toList();
+  await saveExerciseGroupNameOrder(updated, userIdOverride: userIdOverride);
+}
+
 Future<List<int>> loadExerciseGroupOrder(
   String groupName, {
   String? userIdOverride,
@@ -302,6 +385,7 @@ Future<void> clearExerciseGroupingForUser(String userId) async {
   }
 
   await prefs.remove(namesKey);
+  await prefs.remove(_scopedGroupNameOrderStorageKey(userIdOverride: scope));
 }
 
 Future<void> renameExerciseGroupOrder(
@@ -327,10 +411,63 @@ Future<void> renameExerciseGroupOrder(
   await removeExerciseGroupOrder(oldTrimmed, userIdOverride: userIdOverride);
 }
 
+List<String> reorderExerciseGroupNames(
+  List<String> groupNames,
+  int oldIndex,
+  int newIndex,
+) {
+  if (groupNames.isEmpty ||
+      oldIndex < 0 ||
+      oldIndex >= groupNames.length ||
+      newIndex < 0 ||
+      newIndex >= groupNames.length) {
+    return List<String>.from(groupNames);
+  }
+
+  final updated = List<String>.from(groupNames);
+  final item = updated.removeAt(oldIndex);
+  var insertIndex = newIndex;
+  if (oldIndex < insertIndex) {
+    insertIndex -= 1;
+  }
+  updated.insert(insertIndex, item);
+  return updated;
+}
+
+List<String> _applyGroupNameOrder(
+  List<String> groupNames, [
+  List<String>? explicitOrder,
+]) {
+  final names = groupNames.toSet().toList();
+  if (explicitOrder == null || explicitOrder.isEmpty) {
+    final sorted = List<String>.from(names)..sort();
+    return sorted;
+  }
+
+  final ordered = <String>[];
+  final seen = <String>{};
+  for (final candidate in explicitOrder) {
+    final trimmed = candidate.trim();
+    if (trimmed.isEmpty || !names.contains(trimmed) || !seen.add(trimmed)) {
+      continue;
+    }
+    ordered.add(trimmed);
+  }
+
+  for (final candidate in names) {
+    if (seen.add(candidate)) {
+      ordered.add(candidate);
+    }
+  }
+
+  return ordered;
+}
+
 List<ExerciseGroupSection> buildExerciseGroupSections(
   List<Map<String, dynamic>> exercises, {
   List<String>? extraGroupNames,
   Map<String, List<int>>? groupExerciseOrder,
+  List<String>? groupNameOrder,
 }) {
   final sortedExercises = List<Map<String, dynamic>>.from(exercises);
   sortedExercises.sort((a, b) {
@@ -366,7 +503,10 @@ List<ExerciseGroupSection> buildExerciseGroupSections(
     }
   }
 
-  final orderedGroupNames = groups.keys.toList()..sort();
+  final orderedGroupNames = _applyGroupNameOrder(
+    groups.keys.toList(),
+    groupNameOrder,
+  );
   for (final groupName in orderedGroupNames) {
     final orderedExercises = _applyGroupOrder(
       groups[groupName]!,

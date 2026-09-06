@@ -15,6 +15,7 @@ class _ExerciseGroupsScreenState extends State<ExerciseGroupsScreen> {
   final TextEditingController _searchController = TextEditingController();
   List<Map<String, dynamic>> _exercises = [];
   List<String> _knownGroupNames = const <String>[];
+  List<String> _groupNameOrder = const <String>[];
   Map<String, List<int>> _groupExerciseOrder = const <String, List<int>>{};
   String? _selectedGroupName;
   String _searchQuery = '';
@@ -35,11 +36,13 @@ class _ExerciseGroupsScreenState extends State<ExerciseGroupsScreen> {
   Future<void> _loadExercises() async {
     final list = await DBHelper().getExercises();
     final groupNames = await loadExerciseGroupNames(list);
+    final groupNameOrder = await loadExerciseGroupNameOrder();
     final groupExerciseOrder = await loadExerciseGroupOrders(groupNames);
     if (!mounted) return;
     setState(() {
       _exercises = list;
       _knownGroupNames = groupNames;
+      _groupNameOrder = groupNameOrder.isNotEmpty ? groupNameOrder : groupNames;
       _groupExerciseOrder = groupExerciseOrder;
     });
   }
@@ -48,6 +51,7 @@ class _ExerciseGroupsScreenState extends State<ExerciseGroupsScreen> {
     return buildExerciseGroupSections(
       _exercises,
       extraGroupNames: _knownGroupNames,
+      groupNameOrder: _groupNameOrder,
       groupExerciseOrder: _groupExerciseOrder,
     );
   }
@@ -62,11 +66,12 @@ class _ExerciseGroupsScreenState extends State<ExerciseGroupsScreen> {
     if (newIndex < 0 || newIndex > section.exercises.length) return;
 
     final updated = List<Map<String, dynamic>>.from(section.exercises);
-    if (newIndex > oldIndex) {
-      newIndex -= 1;
-    }
     final moved = updated.removeAt(oldIndex);
-    updated.insert(newIndex, moved);
+    if (newIndex > updated.length) {
+      updated.add(moved);
+    } else {
+      updated.insert(newIndex, moved);
+    }
 
     final orderedIds = <int>[];
     for (final exercise in updated) {
@@ -90,6 +95,35 @@ class _ExerciseGroupsScreenState extends State<ExerciseGroupsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Could not save exercise order: $e')),
       );
+    }
+  }
+
+  Future<void> _reorderGroupNamesByIndex(int oldIndex, int newIndex) async {
+    final orderedNames = List<String>.from(
+      _groupNameOrder.isNotEmpty ? _groupNameOrder : _knownGroupNames,
+    );
+    if (oldIndex < 0 || oldIndex >= orderedNames.length) return;
+    if (newIndex < 0 || newIndex > orderedNames.length) return;
+
+    final moved = orderedNames.removeAt(oldIndex);
+    if (newIndex > orderedNames.length) {
+      orderedNames.add(moved);
+    } else {
+      orderedNames.insert(newIndex, moved);
+    }
+
+    setState(() {
+      _knownGroupNames = orderedNames;
+      _groupNameOrder = orderedNames;
+    });
+
+    try {
+      await saveExerciseGroupNameOrder(orderedNames);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not save group order: $e')));
     }
   }
 
@@ -148,6 +182,7 @@ class _ExerciseGroupsScreenState extends State<ExerciseGroupsScreen> {
 
     final existingGroupNames = await loadExerciseGroupNames(_exercises);
     if (existingGroupNames.contains(newName)) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('That group already exists.')),
       );
@@ -172,6 +207,7 @@ class _ExerciseGroupsScreenState extends State<ExerciseGroupsScreen> {
         await DBHelper().setExerciseGroups(exercise['id'] as int, groups);
       }
       await renameExerciseGroupName(oldGroupName, newName);
+      await renameExerciseGroupNameOrder(oldGroupName, newName);
       await renameExerciseGroupOrder(oldGroupName, newName);
       if (!mounted) return;
       await _loadExercises();
@@ -229,6 +265,7 @@ class _ExerciseGroupsScreenState extends State<ExerciseGroupsScreen> {
         await DBHelper().setExerciseGroups(exercise['id'] as int, groups);
       }
       await removeExerciseGroupName(groupName);
+      await removeExerciseGroupNameOrder(groupName);
       await removeExerciseGroupOrder(groupName);
       if (!mounted) return;
       await _loadExercises();
@@ -593,6 +630,8 @@ class _ExerciseGroupsScreenState extends State<ExerciseGroupsScreen> {
         groups.add(name);
       }
       await addExerciseGroupName(name);
+      final nextGroupOrder = [..._knownGroupNames, name];
+      await saveExerciseGroupNameOrder(nextGroupOrder);
       await DBHelper().setExerciseGroups(exercise['id'] as int, groups);
       if (!mounted) return;
       await _loadExercises();
@@ -613,6 +652,9 @@ class _ExerciseGroupsScreenState extends State<ExerciseGroupsScreen> {
         ? const <Map<String, dynamic>>[]
         : _getFilteredExercises(selectedSection);
     final canReorder = isInGroup && _searchQuery.trim().isEmpty;
+    final groupSections = selectedSection == null
+        ? _sections.where((section) => section.name != 'All Exercises').toList()
+        : const <ExerciseGroupSection>[];
 
     return Scaffold(
       appBar: AppBar(
@@ -667,32 +709,35 @@ class _ExerciseGroupsScreenState extends State<ExerciseGroupsScreen> {
       body: Padding(
         padding: const EdgeInsets.all(12),
         child: selectedSection == null
-            ? ListView(
-                children: [
-                  for (final section in _sections)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Card(
-                        child: ListTile(
-                          title: Text(section.name),
-                          subtitle: Text(
-                            '${section.exercises.length} exercise${section.exercises.length == 1 ? '' : 's'}',
-                          ),
-                          trailing: const Icon(Icons.chevron_right),
-                          onTap: () {
-                            setState(() => _selectedGroupName = section.name);
-                          },
-                        ),
+            ? ReorderableListView.builder(
+                itemCount: groupSections.length,
+                onReorderItem: (oldIndex, newIndex) async {
+                  if (oldIndex < 0 ||
+                      oldIndex >= groupSections.length ||
+                      newIndex < 0 ||
+                      newIndex > groupSections.length) {
+                    return;
+                  }
+
+                  await _reorderGroupNamesByIndex(oldIndex, newIndex);
+                },
+                itemBuilder: (context, index) {
+                  final section = groupSections[index];
+
+                  return Card(
+                    key: ValueKey(section.name),
+                    margin: const EdgeInsets.only(bottom: 12),
+                    child: ListTile(
+                      title: Text(section.name),
+                      subtitle: Text(
+                        '${section.exercises.length} exercise${section.exercises.length == 1 ? '' : 's'}',
                       ),
+                      onTap: () {
+                        setState(() => _selectedGroupName = section.name);
+                      },
                     ),
-                  if (_sections.isEmpty)
-                    const Center(
-                      child: Padding(
-                        padding: EdgeInsets.only(top: 16),
-                        child: Text('No groups yet.'),
-                      ),
-                    ),
-                ],
+                  );
+                },
               )
             : Column(
                 children: [
@@ -714,7 +759,7 @@ class _ExerciseGroupsScreenState extends State<ExerciseGroupsScreen> {
                     child: canReorder
                         ? ReorderableListView.builder(
                             itemCount: filteredExercises.length,
-                            onReorder: (oldIndex, newIndex) async {
+                            onReorderItem: (oldIndex, newIndex) async {
                               await _reorderExercisesInGroup(
                                 selectedSection,
                                 oldIndex,

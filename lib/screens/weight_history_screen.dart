@@ -49,9 +49,15 @@ class _WeightHistoryScreenState extends State<WeightHistoryScreen> {
     });
     try {
       final entries = await DBHelper().getBodyWeights();
+      final sortedEntries = List<Map<String, dynamic>>.from(entries)
+        ..sort(
+          (a, b) => (a['timestamp'] as DateTime).compareTo(
+            b['timestamp'] as DateTime,
+          ),
+        );
       if (!mounted) return;
       setState(() {
-        _entries = entries;
+        _entries = sortedEntries;
         _isLoading = false;
       });
     } catch (e) {
@@ -255,9 +261,10 @@ class _WeightHistoryScreenState extends State<WeightHistoryScreen> {
       );
     }
     return ListView.builder(
+      reverse: true,
       itemCount: _entries.length,
       itemBuilder: (context, index) {
-        final entry = _entries[index];
+        final entry = _entries[_entries.length - 1 - index];
         final weight = (entry['weight'] as num).toDouble();
         final unit = entry['unit'] as String? ?? '';
         final date = entry['timestamp'] as DateTime;

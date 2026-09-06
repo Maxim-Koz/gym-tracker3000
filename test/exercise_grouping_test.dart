@@ -75,6 +75,37 @@ void main() {
       );
     });
 
+    test('respects a saved manual group order when building sections', () {
+      final exercises = [
+        {
+          'id': 1,
+          'name': 'Bench Press',
+          'data': {
+            'groups': ['Push'],
+          },
+        },
+        {
+          'id': 2,
+          'name': 'Squat',
+          'data': {
+            'groups': ['Lower Body'],
+          },
+        },
+      ];
+
+      final sections = buildExerciseGroupSections(
+        exercises,
+        extraGroupNames: ['Push', 'Lower Body', 'Upper Body'],
+        groupNameOrder: ['Upper Body', 'Push', 'Lower Body'],
+      );
+
+      expect(sections.skip(1).map((section) => section.name).toList(), [
+        'Upper Body',
+        'Push',
+        'Lower Body',
+      ]);
+    });
+
     test('applies saved per-group exercise order', () {
       final exercises = [
         {
@@ -116,6 +147,16 @@ void main() {
         2,
       ]);
     });
+  });
+
+  test('reorders group names using Flutter reorder semantics', () {
+    final ordered = reorderExerciseGroupNames(
+      ['Upper Body', 'Push', 'Lower Body'],
+      0,
+      2,
+    );
+
+    expect(ordered, ['Push', 'Upper Body', 'Lower Body']);
   });
 
   group('group name storage scoping', () {
