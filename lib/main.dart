@@ -18,6 +18,8 @@ import 'package:gym_tracker/screens/exercise_history_screen.dart';
 import 'package:gym_tracker/screens/daily_workout_history_screen.dart';
 import 'package:gym_tracker/screens/year_history_screen.dart';
 import 'package:gym_tracker/screens/workout_stats_screen.dart';
+import 'package:gym_tracker/screens/forgot_password_screen.dart';
+import 'package:gym_tracker/screens/reset_password_screen.dart';
 import 'package:gym_tracker/providers/theme_provider.dart';
 import 'package:gym_tracker/services/install_session_guard.dart';
 import 'package:gym_tracker/services/sync_service.dart';
@@ -42,6 +44,8 @@ final darkTheme = ThemeData(
   useMaterial3: true,
 );
 
+final GlobalKey<NavigatorState> _appNavigatorKey = GlobalKey<NavigatorState>();
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -49,6 +53,15 @@ void main() async {
     url: 'https://bztpiuywbgfivichfkyg.supabase.co',
     publishableKey: 'sb_publishable_mNNITpH_jYrlJpOlFoWJSA_Ncem4MEV',
   );
+
+  Supabase.instance.client.auth.onAuthStateChange.listen((data) {
+    if (data.event == AuthChangeEvent.passwordRecovery) {
+      _appNavigatorKey.currentState?.pushNamedAndRemoveUntil(
+        '/reset_password',
+        (route) => false,
+      );
+    }
+  });
 
   await InstallSessionGuard().clearRestoredSessionOnFreshInstall();
 
@@ -71,6 +84,7 @@ class MyApp extends StatelessWidget {
     final themeMode = context.watch<ThemeProvider>().themeMode;
 
     return MaterialApp(
+      navigatorKey: _appNavigatorKey,
       title: 'SupaBase auth',
       scaffoldMessengerKey: SyncService.messengerKey,
       theme: lightTheme,
@@ -80,6 +94,8 @@ class MyApp extends StatelessWidget {
       routes: {
         '/': (context) => const LoginScreen(),
         '/signup': (context) => const SignupScreen(),
+        '/forgot_password': (context) => const ForgotPasswordScreen(),
+        '/reset_password': (context) => const ResetPasswordScreen(),
         '/home': (context) => const HomeScreen(),
         '/add_exercise': (context) => const AddExerciseScreen(),
         '/new_exercise': (context) => const NewExerciseScreen(),

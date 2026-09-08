@@ -1,11 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gym_tracker/screens/login_screen.dart';
 import 'package:gym_tracker/screens/record_exercise_screen.dart';
 import 'package:gym_tracker/screens/year_history_screen.dart';
 import 'package:gym_tracker/widgets/edit_log_sheet.dart';
 import 'package:gym_tracker/widgets/workout_calendar.dart';
 
 void main() {
+  testWidgets('login screen exposes a forgot password path', (tester) async {
+    await tester.pumpWidget(const MaterialApp(home: LoginScreen()));
+
+    expect(find.text('Forgot Password?'), findsOneWidget);
+  });
+
   testWidgets('calendar shows month title and day cells', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
