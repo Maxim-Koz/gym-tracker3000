@@ -66,6 +66,8 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    if (!mounted) return;
+
     final args = ModalRoute.of(context)?.settings.arguments;
     if (args is Map<String, dynamic>) {
       final nextExercise = args;
@@ -89,12 +91,16 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
           _showNoteField = draft.note.isNotEmpty;
           _isOneRepMax = draft.isOneRepMax;
           _ignoreInGraph = draft.ignoreInGraph;
-          _rebuildRows(type: draft.type, draft: draft);
-        } else {
+          if (mounted) {
+            _rebuildRows(type: draft.type, draft: draft);
+          }
+        } else if (mounted) {
           _rebuildRows(type: _selectedType);
         }
       }
-      _loadSessions();
+      if (mounted) {
+        _loadSessions();
+      }
     }
   }
 
@@ -163,6 +169,8 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
   }
 
   void _rebuildRows({required String type, SessionDraft? draft}) {
+    if (!mounted) return;
+
     setState(() {
       for (final row in _normalRows) {
         (row['weight'] as TextEditingController?)?.dispose();

@@ -198,4 +198,31 @@ void main() {
 
     expect(find.text('lb'), findsWidgets);
   });
+
+  testWidgets(
+    'record exercise screen ignores dependency updates after disposal',
+    (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => ElevatedButton(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const RecordExerciseScreen()),
+              ),
+              child: const Text('Open record screen'),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Open record screen'));
+      await tester.pumpAndSettle();
+
+      final screenState = tester.state(find.byType(RecordExerciseScreen));
+      await tester.pumpWidget(const SizedBox());
+
+      expect(() => screenState.didChangeDependencies(), returnsNormally);
+      expect(find.byType(RecordExerciseScreen), findsNothing);
+    },
+  );
 }
