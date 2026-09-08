@@ -14,6 +14,7 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
   final _searchController = TextEditingController();
   final Set<int> _selectedExerciseIds = <int>{};
   List<Map<String, dynamic>> _exercises = [];
+  List<String> _knownGroupNames = const <String>[];
   String _searchQuery = '';
   bool _isSaving = false;
 
@@ -41,8 +42,12 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
 
   Future<void> _loadExercises() async {
     final list = await DBHelper().getExercises();
+    final knownGroupNames = await loadExerciseGroupNames(list);
     if (!mounted) return;
-    setState(() => _exercises = list);
+    setState(() {
+      _exercises = list;
+      _knownGroupNames = knownGroupNames;
+    });
   }
 
   Future<void> _save() async {
@@ -54,8 +59,7 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
       return;
     }
 
-    final existingGroupNames = await loadExerciseGroupNames(_exercises);
-    if (existingGroupNames.contains(name)) {
+    if (_knownGroupNames.contains(name)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('That group already exists.')),
       );
@@ -65,6 +69,9 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
     setState(() => _isSaving = true);
     try {
       await addExerciseGroupName(name);
+      final nextGroupOrder = [..._knownGroupNames, name];
+      await saveExerciseGroupNameOrder(nextGroupOrder);
+
       for (final exerciseId in _selectedExerciseIds) {
         final exercise = _exercises.firstWhere(
           (item) => item['id'] == exerciseId,
@@ -114,63 +121,65 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
       ),
       body: Padding(
         padding: const EdgeInsets.all(16),
-        child: _exercises.isEmpty
-            ? const Center(child: Text('No exercises yet. Add one first.'))
-            : ListView(
+        child: ListView(
+          children: [
+            TextField(
+              controller: _nameController,
+              autofocus: true,
+              decoration: const InputDecoration(labelText: 'Group name'),
+            ),
+            const SizedBox(height: 24),
+            if (_exercises.isEmpty)
+              const Text(
+                'No exercises yet. You can still create this group now and add exercises later.',
+              )
+            else ...[
+              const Text('Choose exercises to add to this group (optional)'),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _searchController,
+                decoration: const InputDecoration(
+                  labelText: 'Search exercises',
+                  prefixIcon: Icon(Icons.search),
+                ),
+                onChanged: (value) {
+                  setState(() {
+                    _searchQuery = value;
+                  });
+                },
+              ),
+              const SizedBox(height: 12),
+              if (_filteredExercises.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 8),
+                  child: Text('No exercises match your search.'),
+                ),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
                 children: [
-                  TextField(
-                    controller: _nameController,
-                    autofocus: true,
-                    decoration: const InputDecoration(labelText: 'Group name'),
-                  ),
-                  const SizedBox(height: 24),
-                  const Text('Choose exercises to add to this group'),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _searchController,
-                    decoration: const InputDecoration(
-                      labelText: 'Search exercises',
-                      prefixIcon: Icon(Icons.search),
+                  for (final exercise in _filteredExercises)
+                    FilterChip(
+                      label: Text(exercise['name'] as String? ?? 'Exercise'),
+                      selected: _selectedExerciseIds.contains(
+                        exercise['id'] as int,
+                      ),
+                      onSelected: (selected) {
+                        setState(() {
+                          final exerciseId = exercise['id'] as int;
+                          if (selected) {
+                            _selectedExerciseIds.add(exerciseId);
+                          } else {
+                            _selectedExerciseIds.remove(exerciseId);
+                          }
+                        });
+                      },
                     ),
-                    onChanged: (value) {
-                      setState(() {
-                        _searchQuery = value;
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  if (_filteredExercises.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 8),
-                      child: Text('No exercises match your search.'),
-                    ),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final exercise in _filteredExercises)
-                        FilterChip(
-                          label: Text(
-                            exercise['name'] as String? ?? 'Exercise',
-                          ),
-                          selected: _selectedExerciseIds.contains(
-                            exercise['id'] as int,
-                          ),
-                          onSelected: (selected) {
-                            setState(() {
-                              final exerciseId = exercise['id'] as int;
-                              if (selected) {
-                                _selectedExerciseIds.add(exerciseId);
-                              } else {
-                                _selectedExerciseIds.remove(exerciseId);
-                              }
-                            });
-                          },
-                        ),
-                    ],
-                  ),
                 ],
               ),
+            ],
+          ],
+        ),
       ),
     );
   }

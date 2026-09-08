@@ -171,127 +171,120 @@ class _HomeScreenState extends State<HomeScreen> {
     final target = isViewLogsStep ? _rectForKey(_browseHistoryKey) : null;
     final title = isWelcomeStep ? 'Welcome Tutorial' : 'View Logs';
     final description = isWelcomeStep
-        ? 'This walkthrough will show you groups, creating exercises, logging workouts, and where to find your history.'
-        : 'This is the Browse exercise history button. Use it to open your logs and session history.';
+        ? 'This tutorial will guide you through the main features of the app. Tap "Next" to continue.'
+        : 'Tap on this button to view all your exercises past logs, as well as a graph to visualise your progress.';
     final primaryLabel = isWelcomeStep ? 'Next' : 'Done';
 
     return Positioned.fill(
       child: ColoredBox(
         color: TutorialThemeTokens.overlay,
-        child: SafeArea(
-          child: Stack(
-            children: [
-              if (target != null)
-                Positioned(
-                  left: target.left - 4,
-                  top: target.top - 4,
-                  child: IgnorePointer(
-                    child: Container(
-                      width: target.width + 8,
-                      height: target.height + 8,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: TutorialThemeTokens.border,
-                          width: 2.5,
+        child: Stack(
+          children: [
+            if (target != null)
+              Positioned(
+                left: target.left - 4,
+                top: target.top - 4,
+                child: IgnorePointer(
+                  child: Container(
+                    width: target.width + 8,
+                    height: target.height + 8,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: TutorialThemeTokens.border,
+                        width: 2.5,
+                      ),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0xAA93C5FD),
+                          blurRadius: 12,
+                          spreadRadius: 1,
                         ),
-                        boxShadow: const [
-                          BoxShadow(
-                            color: Color(0xAA93C5FD),
-                            blurRadius: 12,
-                            spreadRadius: 1,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              Align(
-                alignment: isViewLogsStep
-                    ? Alignment.topCenter
-                    : Alignment.center,
-                child: Padding(
-                  padding: EdgeInsets.fromLTRB(
-                    10,
-                    isViewLogsStep ? 14 : 0,
-                    10,
-                    0,
-                  ),
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(
-                      maxWidth: 560,
-                      maxHeight: (size.height * 0.24).clamp(140.0, 185.0),
-                    ),
-                    child: TutorialPanel(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(title, style: TutorialThemeTokens.titleStyle),
-                          const SizedBox(height: 6),
-                          Text(
-                            description,
-                            style: TutorialThemeTokens.bodyStyle,
-                          ),
-                          const Spacer(),
-                          Row(
-                            children: [
-                              TextButton(
-                                onPressed: _closeTutorialOverlay,
-                                style: TextButton.styleFrom(
-                                  foregroundColor: TutorialThemeTokens.title,
-                                  textStyle: TutorialThemeTokens.buttonStyle,
-                                ),
-                                child: const Text('Skip'),
-                              ),
-                              Expanded(
-                                child: Center(
-                                  child: TutorialDots(
-                                    count: _tutorialTotalSteps,
-                                    currentIndex: _tutorialStep,
-                                  ),
-                                ),
-                              ),
-                              Row(
-                                children: [
-                                  if (isViewLogsStep) ...[
-                                    OutlinedButton(
-                                      onPressed: _onHomeTutorialBack,
-                                      style: OutlinedButton.styleFrom(
-                                        side: const BorderSide(
-                                          color: TutorialThemeTokens.border,
-                                        ),
-                                        foregroundColor:
-                                            TutorialThemeTokens.title,
-                                        textStyle:
-                                            TutorialThemeTokens.buttonStyle,
-                                      ),
-                                      child: const Text('Back'),
-                                    ),
-                                    const SizedBox(width: 8),
-                                  ],
-                                  FilledButton(
-                                    onPressed: _onHomeTutorialPrimary,
-                                    style: FilledButton.styleFrom(
-                                      backgroundColor:
-                                          TutorialThemeTokens.button,
-                                      foregroundColor: Colors.white,
-                                      textStyle:
-                                          TutorialThemeTokens.buttonStyle,
-                                    ),
-                                    child: Text(primaryLabel),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
+                      ],
                     ),
                   ),
                 ),
               ),
-            ],
-          ),
+            Align(
+              alignment: isViewLogsStep
+                  ? Alignment.topCenter
+                  : Alignment.center,
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  10,
+                  isViewLogsStep ? 34 : 0,
+                  10,
+                  0,
+                ),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: 560,
+                    maxHeight: (size.height * 0.24).clamp(140.0, 185.0),
+                  ),
+                  child: TutorialPanel(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(title, style: TutorialThemeTokens.titleStyle),
+                        const SizedBox(height: 6),
+                        Text(description, style: TutorialThemeTokens.bodyStyle),
+                        const Spacer(),
+                        Row(
+                          children: [
+                            TextButton(
+                              onPressed: _closeTutorialOverlay,
+                              style: TextButton.styleFrom(
+                                foregroundColor: TutorialThemeTokens.title,
+                                textStyle: TutorialThemeTokens.buttonStyle,
+                              ),
+                              child: const Text('Skip'),
+                            ),
+                            Expanded(
+                              child: Center(
+                                child: TutorialDots(
+                                  count: _tutorialTotalSteps,
+                                  currentIndex: _tutorialStep,
+                                ),
+                              ),
+                            ),
+                            Row(
+                              children: [
+                                if (isViewLogsStep) ...[
+                                  OutlinedButton(
+                                    onPressed: _onHomeTutorialBack,
+                                    style: OutlinedButton.styleFrom(
+                                      side: const BorderSide(
+                                        color: TutorialThemeTokens.border,
+                                      ),
+                                      foregroundColor:
+                                          TutorialThemeTokens.title,
+                                      textStyle:
+                                          TutorialThemeTokens.buttonStyle,
+                                    ),
+                                    child: const Text('Back'),
+                                  ),
+                                  const SizedBox(width: 8),
+                                ],
+                                FilledButton(
+                                  onPressed: _onHomeTutorialPrimary,
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: TutorialThemeTokens.button,
+                                    foregroundColor: Colors.white,
+                                    textStyle: TutorialThemeTokens.buttonStyle,
+                                  ),
+                                  child: Text(primaryLabel),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

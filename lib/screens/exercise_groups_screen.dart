@@ -558,26 +558,27 @@ class _ExerciseGroupsScreenState extends State<ExerciseGroupsScreen> {
                   return null;
                 },
               ),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<int>(
-                decoration: const InputDecoration(
-                  labelText: 'Add an existing exercise to the group',
+              if (_exercises.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                DropdownButtonFormField<int>(
+                  decoration: const InputDecoration(
+                    labelText: 'Add an exercise (optional)',
+                  ),
+                  items: [
+                    for (final exercise in _exercises)
+                      DropdownMenuItem<int>(
+                        value: exercise['id'] as int,
+                        child: Text(exercise['name'] as String? ?? 'Exercise'),
+                      ),
+                  ],
+                  onChanged: (value) => selectedExerciseId = value,
                 ),
-                items: [
-                  for (final exercise in _exercises)
-                    DropdownMenuItem<int>(
-                      value: exercise['id'] as int,
-                      child: Text(exercise['name'] as String? ?? 'Exercise'),
-                    ),
-                ],
-                onChanged: (value) => selectedExerciseId = value,
-                validator: (value) {
-                  if (value == null) {
-                    return 'Pick an exercise';
-                  }
-                  return null;
-                },
-              ),
+              ] else ...[
+                const SizedBox(height: 16),
+                const Text(
+                  'No exercises yet. You can add them to this group later.',
+                ),
+              ],
             ],
           ),
         ),
@@ -598,7 +599,7 @@ class _ExerciseGroupsScreenState extends State<ExerciseGroupsScreen> {
       ),
     );
 
-    if (name == null || selectedExerciseId == null) return;
+    if (name == null) return;
 
     final existingGroupNames = await loadExerciseGroupNames(_exercises);
     if (existingGroupNames.contains(name)) {
@@ -610,29 +611,31 @@ class _ExerciseGroupsScreenState extends State<ExerciseGroupsScreen> {
     }
 
     try {
-      final exercise = _exercises.firstWhere(
-        (item) => item['id'] == selectedExerciseId,
-      );
-      final data = Map<String, dynamic>.from(
-        (exercise['data'] as Map?) ?? <String, dynamic>{},
-      );
-      final groups = <String>[];
-      final rawGroups = data['groups'];
-      if (rawGroups is List) {
-        for (final group in rawGroups) {
-          final groupName = group?.toString().trim();
-          if (groupName != null && groupName.isNotEmpty) {
-            groups.add(groupName);
+      if (selectedExerciseId != null) {
+        final exercise = _exercises.firstWhere(
+          (item) => item['id'] == selectedExerciseId,
+        );
+        final data = Map<String, dynamic>.from(
+          (exercise['data'] as Map?) ?? <String, dynamic>{},
+        );
+        final groups = <String>[];
+        final rawGroups = data['groups'];
+        if (rawGroups is List) {
+          for (final group in rawGroups) {
+            final groupName = group?.toString().trim();
+            if (groupName != null && groupName.isNotEmpty) {
+              groups.add(groupName);
+            }
           }
         }
-      }
-      if (!groups.contains(name)) {
-        groups.add(name);
+        if (!groups.contains(name)) {
+          groups.add(name);
+        }
+        await DBHelper().setExerciseGroups(exercise['id'] as int, groups);
       }
       await addExerciseGroupName(name);
       final nextGroupOrder = [..._knownGroupNames, name];
       await saveExerciseGroupNameOrder(nextGroupOrder);
-      await DBHelper().setExerciseGroups(exercise['id'] as int, groups);
       if (!mounted) return;
       await _loadExercises();
     } catch (e) {

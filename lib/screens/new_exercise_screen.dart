@@ -11,10 +11,12 @@ class NewExerciseScreen extends StatefulWidget {
 
 class _NewExerciseScreenState extends State<NewExerciseScreen> {
   final _nameController = TextEditingController();
+  final _groupSearchController = TextEditingController();
   bool _includeBodyweight = false;
   bool _isSaving = false;
   List<String> _groupNames = [];
   final Set<String> _selectedGroups = <String>{};
+  String _groupSearchQuery = '';
 
   @override
   void initState() {
@@ -32,7 +34,16 @@ class _NewExerciseScreenState extends State<NewExerciseScreen> {
   @override
   void dispose() {
     _nameController.dispose();
+    _groupSearchController.dispose();
     super.dispose();
+  }
+
+  List<String> get _filteredGroupNames {
+    final query = _groupSearchQuery.trim().toLowerCase();
+    if (query.isEmpty) return _groupNames;
+    return _groupNames
+        .where((groupName) => groupName.toLowerCase().contains(query))
+        .toList();
   }
 
   Future<void> _save() async {
@@ -109,11 +120,24 @@ class _NewExerciseScreenState extends State<NewExerciseScreen> {
               const SizedBox(height: 12),
               const Text('Add to groups'),
               const SizedBox(height: 8),
+              TextField(
+                controller: _groupSearchController,
+                decoration: const InputDecoration(
+                  labelText: 'Search groups',
+                  prefixIcon: Icon(Icons.search),
+                ),
+                onChanged: (value) {
+                  setState(() => _groupSearchQuery = value);
+                },
+              ),
+              const SizedBox(height: 8),
+              if (_filteredGroupNames.isEmpty)
+                const Text('No groups match your search.'),
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  for (final groupName in _groupNames)
+                  for (final groupName in _filteredGroupNames)
                     FilterChip(
                       label: Text(groupName),
                       selected: _selectedGroups.contains(groupName),

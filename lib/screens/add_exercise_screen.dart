@@ -19,6 +19,7 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
   final TextEditingController _searchController = TextEditingController();
   final GlobalKey _addGroupButtonKey = GlobalKey();
   final GlobalKey _addExerciseButtonKey = GlobalKey();
+  final GlobalKey _allExercisesCardKey = GlobalKey();
   final GlobalKey _groupListKey = GlobalKey();
   final GlobalKey _firstGroupCardKey = GlobalKey();
   final PageController _tutorialPageController = PageController();
@@ -27,6 +28,7 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
   bool _handledTutorialArgs = false;
   int _tutorialStep = 0;
   bool _isTutorialNavigating = false;
+  bool _didInitialHighlightRealignment = false;
 
   static const int _tutorialSteps = 5;
 
@@ -53,9 +55,39 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
           _tutorialStep = safeStartStep;
           _showTutorial = true;
         });
-        _tutorialPageController.jumpToPage(safeStartStep - 1);
+        _jumpToTutorialPageWhenReady(safeStartStep - 1);
+        _scheduleInitialHighlightRealignment();
       });
     }
+  }
+
+  void _jumpToTutorialPageWhenReady(int pageIndex, {int attempt = 0}) {
+    if (!mounted || !_showTutorial) return;
+
+    if (_tutorialPageController.hasClients) {
+      _tutorialPageController.jumpToPage(pageIndex);
+      return;
+    }
+
+    if (attempt >= 8) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _jumpToTutorialPageWhenReady(pageIndex, attempt: attempt + 1);
+    });
+  }
+
+  void _scheduleInitialHighlightRealignment() {
+    if (_didInitialHighlightRealignment) return;
+    _didInitialHighlightRealignment = true;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_showTutorial) return;
+      setState(() {});
+    });
+
+    Future<void>.delayed(const Duration(milliseconds: 220), () {
+      if (!mounted || !_showTutorial) return;
+      setState(() {});
+    });
   }
 
   Future<void> _loadExercises() async {
@@ -122,6 +154,7 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
   void _showWelcomeOnHome() {
     if (!mounted || _isTutorialNavigating) return;
     _isTutorialNavigating = true;
+    _didInitialHighlightRealignment = false;
     setState(() => _showTutorial = false);
     Navigator.of(context).pushReplacementNamed(
       '/home',
@@ -133,6 +166,7 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
   void _showHistoryButtonOnHome() {
     if (!mounted || _isTutorialNavigating) return;
     _isTutorialNavigating = true;
+    _didInitialHighlightRealignment = false;
     setState(() => _showTutorial = false);
     Navigator.of(context).pushReplacementNamed(
       '/home',
@@ -287,13 +321,14 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
     final addExerciseRect = _rectForKey(_addExerciseButtonKey);
     final addGroupRect = _rectForKey(_addGroupButtonKey);
     final listRect = _rectForKey(_groupListKey);
+    final allExercisesRect = _rectForKey(_allExercisesCardKey);
     final firstGroupRect = _rectForKey(_firstGroupCardKey);
 
     final cards = <Map<String, String>>[
       {
         'title': 'Add Exercise',
         'description':
-            'Use this button to create a new exercise. Give it a name and optionally assign groups.',
+            'Use this button to create a new exercise. Give it a name and optionally assign it to groups.',
       },
       {
         'title': 'Add Group',
@@ -303,78 +338,69 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
       {
         'title': 'Log Workouts',
         'description':
-            'Open any group, then tap an exercise to record sets and save a session log.',
+            'Once a group is created, you can tap on it to view its exercises and log your workouts.',
       },
     ];
 
     return Positioned.fill(
       child: ColoredBox(
         color: TutorialThemeTokens.overlay,
-        child: SafeArea(
-          child: Stack(
-            children: [
-              if (_tutorialStep == 1 && addExerciseRect != null)
-                _buildTutorialPointer(
-                  target: addExerciseRect,
-                  label: 'Tap here to add a new exercise.',
-                ),
-              if (_tutorialStep == 2 && addGroupRect != null)
-                _buildTutorialPointer(
-                  target: addGroupRect,
-                  label: 'Tap here to create a new group.',
-                ),
-              if (_tutorialStep == 3 && listRect != null)
-                _buildTutorialPointer(
-                  target:
-                      firstGroupRect ??
-                      Rect.fromLTWH(
-                        listRect.left + 8,
-                        listRect.top + 8,
-                        listRect.width - 16,
-                        52,
-                      ),
-                  label:
-                      'After creating items, tap a group card and then an exercise to log your workout.',
-                ),
-              Align(
-                alignment: _tutorialStep == 1
-                    ? Alignment.bottomCenter
-                    : _tutorialStep == 2
-                    ? Alignment.bottomCenter
-                    : _tutorialStep == 3
-                    ? Alignment.topCenter
-                    : Alignment.center,
-                child: Padding(
-                  padding: EdgeInsets.only(
-                    left: 8,
-                    right: 8,
-                    top: _tutorialStep == 3 ? 12 : 0,
-                    bottom: _tutorialStep == 1 || _tutorialStep == 2 ? 16 : 0,
-                  ),
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 560),
-                    child: SizedBox(
-                      height: tutorialCardHeight.toDouble(),
-                      child: PageView(
-                        controller: _tutorialPageController,
-                        onPageChanged: (index) {
-                          if (!mounted) return;
-                          setState(() => _tutorialStep = index + 1);
-                        },
-                        children: [
-                          for (var i = 0; i < cards.length; i++)
-                            _buildTutorialCard(
-                              title: cards[i]['title']!,
-                              description: cards[i]['description']!,
-                            ),
-                        ],
-                      ),
+        child: Stack(
+          children: [
+            if (_tutorialStep == 1 && addExerciseRect != null)
+              _buildTutorialPointer(
+                target: addExerciseRect,
+                label: 'Tap here to add a new exercise.',
+              ),
+            if (_tutorialStep == 2 && addGroupRect != null)
+              _buildTutorialPointer(
+                target: addGroupRect,
+                label: 'Tap here to create a new group.',
+              ),
+            if (_tutorialStep == 3 && listRect != null)
+              _buildTutorialPointer(
+                target:
+                    allExercisesRect ??
+                    firstGroupRect ??
+                    Rect.fromLTWH(
+                      listRect.left + 8,
+                      listRect.top + 8,
+                      listRect.width - 16,
+                      52,
+                    ),
+                label: 'This is a group where all exercises will be listed.',
+              ),
+            Align(
+              alignment: _tutorialStep == 1
+                  ? Alignment.bottomCenter
+                  : _tutorialStep == 2
+                  ? Alignment.bottomCenter
+                  : Alignment.bottomCenter,
+              child: Padding(
+                padding: EdgeInsets.only(left: 8, right: 8, top: 0, bottom: 16),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 560),
+                  child: SizedBox(
+                    height: tutorialCardHeight.toDouble(),
+                    child: PageView(
+                      controller: _tutorialPageController,
+                      onPageChanged: (index) {
+                        if (!mounted) return;
+                        setState(() => _tutorialStep = index + 1);
+                      },
+                      children: [
+                        for (var i = 0; i < cards.length; i++)
+                          _buildTutorialCard(
+                            title: cards[i]['title']!,
+                            description: cards[i]['description']!,
+                          ),
+                      ],
                     ),
                   ),
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -525,18 +551,17 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
                 const SizedBox(height: 16),
                 Expanded(
                   key: _groupListKey,
-                  child: _exercises.isEmpty && _knownGroupNames.isEmpty
-                      ? const Center(
-                          child: Text('No exercises yet. Tap + to add.'),
-                        )
-                      : sections.isEmpty
+                  child: sections.isEmpty
                       ? const Center(
                           child: Text('No groups match your search.'),
                         )
                       : Column(
                           children: [
                             for (final section in allExercisesSection)
-                              _buildGroupCard(section),
+                              _buildGroupCard(
+                                section,
+                                cardKey: _allExercisesCardKey,
+                              ),
                             Expanded(
                               child: customSections.isEmpty
                                   ? const SizedBox.shrink()
