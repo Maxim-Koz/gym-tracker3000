@@ -26,8 +26,9 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
   bool _showTutorial = false;
   bool _handledTutorialArgs = false;
   int _tutorialStep = 0;
+  bool _isTutorialNavigating = false;
 
-  static const int _tutorialSteps = 4;
+  static const int _tutorialSteps = 5;
 
   @override
   void initState() {
@@ -47,12 +48,12 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
         if (!mounted) return;
         final rawStartStep = args['tutorialStartStep'];
         final startStep = rawStartStep is int ? rawStartStep : 0;
-        final safeStartStep = startStep.clamp(0, _tutorialSteps - 1);
+        final safeStartStep = startStep.clamp(1, 3);
         setState(() {
           _tutorialStep = safeStartStep;
           _showTutorial = true;
         });
-        _tutorialPageController.jumpToPage(safeStartStep);
+        _tutorialPageController.jumpToPage(safeStartStep - 1);
       });
     }
   }
@@ -94,8 +95,19 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
 
   void _setTutorialStep(int step) {
     if (step < 0 || step >= _tutorialSteps) return;
+
+    if (step == 0) {
+      _showWelcomeOnHome();
+      return;
+    }
+
+    if (step == 4) {
+      _showHistoryButtonOnHome();
+      return;
+    }
+
     _tutorialPageController.animateToPage(
-      step,
+      step - 1,
       duration: const Duration(milliseconds: 250),
       curve: Curves.easeOut,
     );
@@ -107,11 +119,35 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
     setState(() => _showTutorial = false);
   }
 
+  void _showWelcomeOnHome() {
+    if (!mounted || _isTutorialNavigating) return;
+    _isTutorialNavigating = true;
+    setState(() => _showTutorial = false);
+    Navigator.of(context).pushReplacementNamed(
+      '/home',
+      arguments: {'showTutorial': true, 'tutorialStartStep': 0},
+    );
+    _isTutorialNavigating = false;
+  }
+
+  void _showHistoryButtonOnHome() {
+    if (!mounted || _isTutorialNavigating) return;
+    _isTutorialNavigating = true;
+    setState(() => _showTutorial = false);
+    Navigator.of(context).pushReplacementNamed(
+      '/home',
+      arguments: {'showTutorial': true, 'tutorialStartStep': 4},
+    );
+    _isTutorialNavigating = false;
+  }
+
   Widget _buildTutorialCard({
     required String title,
     required String description,
-    required bool isLast,
   }) {
+    final isLastGroupsStep = _tutorialStep == 3;
+    final canGoBack = _tutorialStep > 0;
+
     return TutorialPanel(
       child: LayoutBuilder(
         builder: (context, constraints) => SingleChildScrollView(
@@ -125,7 +161,6 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
                 Text(description, style: TutorialThemeTokens.bodyStyle),
                 const SizedBox(height: 14),
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     TextButton(
                       onPressed: _finishTutorial,
@@ -135,9 +170,17 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
                       ),
                       child: const Text('Skip'),
                     ),
+                    Expanded(
+                      child: Center(
+                        child: TutorialDots(
+                          count: _tutorialSteps,
+                          currentIndex: _tutorialStep,
+                        ),
+                      ),
+                    ),
                     Row(
                       children: [
-                        if (_tutorialStep > 0)
+                        if (canGoBack)
                           OutlinedButton(
                             onPressed: () =>
                                 _setTutorialStep(_tutorialStep - 1),
@@ -152,15 +195,13 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
                           ),
                         const SizedBox(width: 8),
                         FilledButton(
-                          onPressed: isLast
-                              ? _finishTutorial
-                              : () => _setTutorialStep(_tutorialStep + 1),
+                          onPressed: () => _setTutorialStep(_tutorialStep + 1),
                           style: FilledButton.styleFrom(
                             backgroundColor: TutorialThemeTokens.button,
                             foregroundColor: Colors.white,
                             textStyle: TutorialThemeTokens.buttonStyle,
                           ),
-                          child: Text(isLast ? 'Done' : 'Next'),
+                          child: Text(isLastGroupsStep ? 'Next' : 'Next'),
                         ),
                       ],
                     ),
@@ -264,11 +305,6 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
         'description':
             'Open any group, then tap an exercise to record sets and save a session log.',
       },
-      {
-        'title': 'View Logs',
-        'description':
-            'Go to Home and open History to browse past logs and session details.',
-      },
     ];
 
     return Positioned.fill(
@@ -277,17 +313,17 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
         child: SafeArea(
           child: Stack(
             children: [
-              if (_tutorialStep == 0 && addExerciseRect != null)
+              if (_tutorialStep == 1 && addExerciseRect != null)
                 _buildTutorialPointer(
                   target: addExerciseRect,
                   label: 'Tap here to add a new exercise.',
                 ),
-              if (_tutorialStep == 1 && addGroupRect != null)
+              if (_tutorialStep == 2 && addGroupRect != null)
                 _buildTutorialPointer(
                   target: addGroupRect,
                   label: 'Tap here to create a new group.',
                 ),
-              if (_tutorialStep == 2 && listRect != null)
+              if (_tutorialStep == 3 && listRect != null)
                 _buildTutorialPointer(
                   target:
                       firstGroupRect ??
@@ -301,49 +337,38 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
                       'After creating items, tap a group card and then an exercise to log your workout.',
                 ),
               Align(
-                alignment: _tutorialStep == 0
-                    ? Alignment.bottomCenter
-                    : _tutorialStep == 1
+                alignment: _tutorialStep == 1
                     ? Alignment.bottomCenter
                     : _tutorialStep == 2
+                    ? Alignment.bottomCenter
+                    : _tutorialStep == 3
                     ? Alignment.topCenter
                     : Alignment.center,
                 child: Padding(
                   padding: EdgeInsets.only(
                     left: 8,
                     right: 8,
-                    top: _tutorialStep == 2 ? 12 : 0,
-                    bottom: _tutorialStep <= 1 ? 16 : 0,
+                    top: _tutorialStep == 3 ? 12 : 0,
+                    bottom: _tutorialStep == 1 || _tutorialStep == 2 ? 16 : 0,
                   ),
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 560),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        SizedBox(
-                          height: tutorialCardHeight.toDouble(),
-                          child: PageView(
-                            controller: _tutorialPageController,
-                            onPageChanged: (index) {
-                              if (!mounted) return;
-                              setState(() => _tutorialStep = index);
-                            },
-                            children: [
-                              for (var i = 0; i < cards.length; i++)
-                                _buildTutorialCard(
-                                  title: cards[i]['title']!,
-                                  description: cards[i]['description']!,
-                                  isLast: i == cards.length - 1,
-                                ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        TutorialDots(
-                          count: _tutorialSteps,
-                          currentIndex: _tutorialStep,
-                        ),
-                      ],
+                    child: SizedBox(
+                      height: tutorialCardHeight.toDouble(),
+                      child: PageView(
+                        controller: _tutorialPageController,
+                        onPageChanged: (index) {
+                          if (!mounted) return;
+                          setState(() => _tutorialStep = index + 1);
+                        },
+                        children: [
+                          for (var i = 0; i < cards.length; i++)
+                            _buildTutorialCard(
+                              title: cards[i]['title']!,
+                              description: cards[i]['description']!,
+                            ),
+                        ],
+                      ),
                     ),
                   ),
                 ),

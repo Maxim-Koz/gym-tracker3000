@@ -37,6 +37,12 @@ class _HomeScreenState extends State<HomeScreen> {
   String _username = 'there';
   Set<DateTime> _loggedDates = <DateTime>{};
   bool _isTutorialFlowLaunching = false;
+  bool _handledRouteTutorialArgs = false;
+  bool _showTutorialOverlay = false;
+  int _tutorialStep = 0;
+  final GlobalKey _browseHistoryKey = GlobalKey();
+
+  static const int _tutorialTotalSteps = 5;
 
   static String _usernameKey(String userId) => 'cached_username_$userId';
   static Future<String?> _readPersistedUsername(String userId) async {
@@ -69,6 +75,38 @@ class _HomeScreenState extends State<HomeScreen> {
     _maybeShowMiniTutorial();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_handledRouteTutorialArgs) return;
+    _handledRouteTutorialArgs = true;
+
+    final args = ModalRoute.of(context)?.settings.arguments;
+    if (args is Map && args['showTutorial'] == true) {
+      final rawStartStep = args['tutorialStartStep'];
+      final startStep = rawStartStep is int ? rawStartStep : 0;
+      final safeStep = startStep.clamp(0, _tutorialTotalSteps - 1);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() {
+          _tutorialStep = safeStep;
+          _showTutorialOverlay = true;
+        });
+      });
+      return;
+    }
+
+    if (args is Map && args['showHistoryTutorial'] == true) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() {
+          _tutorialStep = 4;
+          _showTutorialOverlay = true;
+        });
+      });
+    }
+  }
+
   Future<void> _maybeShowMiniTutorial() async {
     final userId = Supabase.instance.client.auth.currentUser?.id;
     if (userId == null) return;
@@ -83,88 +121,189 @@ class _HomeScreenState extends State<HomeScreen> {
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _isTutorialFlowLaunching) return;
-      _startMiniTutorialFlow();
+      setState(() {
+        _tutorialStep = 0;
+        _showTutorialOverlay = true;
+      });
     });
   }
 
-  Future<void> _startMiniTutorialFlow() async {
+  Future<void> _openGroupsTutorial({required int startStep}) async {
     if (_isTutorialFlowLaunching) return;
     _isTutorialFlowLaunching = true;
-    final shouldStart = await _showTutorialIntroDialog();
-    if (!mounted || shouldStart != true) {
+    if (!mounted) {
       _isTutorialFlowLaunching = false;
       return;
     }
+
     await Navigator.of(context).pushNamed(
       '/add_exercise',
-      arguments: {'showTutorial': true, 'tutorialStartStep': 0},
+      arguments: {'showTutorial': true, 'tutorialStartStep': startStep},
     );
     _isTutorialFlowLaunching = false;
   }
 
-  Future<bool?> _showTutorialIntroDialog() {
-    return showGeneralDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      barrierLabel: 'Tutorial intro',
-      barrierColor: TutorialThemeTokens.overlay,
-      pageBuilder: (dialogContext, animation, secondaryAnimation) {
-        final width = MediaQuery.of(dialogContext).size.width;
-        return SafeArea(
-          child: Center(
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                maxWidth: width > 640 ? 560 : width - 20,
-              ),
-              child: TutorialPanel(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Welcome Tutorial',
-                      style: TutorialThemeTokens.titleStyle,
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'This short tutorial will walk you through groups, exercises, '
-                      'logging a workout, and where to view your logs.',
-                      style: TutorialThemeTokens.bodyStyle,
-                    ),
-                    const SizedBox(height: 14),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        TextButton(
-                          onPressed: () =>
-                              Navigator.of(dialogContext).pop(false),
-                          style: TextButton.styleFrom(
-                            foregroundColor: TutorialThemeTokens.title,
-                            textStyle: TutorialThemeTokens.buttonStyle,
-                          ),
-                          child: const Text('Skip'),
+  void _closeTutorialOverlay() {
+    if (!mounted) return;
+    setState(() => _showTutorialOverlay = false);
+  }
+
+  void _onHomeTutorialPrimary() {
+    if (_tutorialStep == 0) {
+      _openGroupsTutorial(startStep: 1);
+      return;
+    }
+    if (_tutorialStep == 4) {
+      _closeTutorialOverlay();
+    }
+  }
+
+  void _onHomeTutorialBack() {
+    if (_tutorialStep == 4) {
+      _openGroupsTutorial(startStep: 3);
+    }
+  }
+
+  Widget _buildHomeTutorialOverlay() {
+    final size = MediaQuery.of(context).size;
+    final isWelcomeStep = _tutorialStep == 0;
+    final isViewLogsStep = _tutorialStep == 4;
+    final target = isViewLogsStep ? _rectForKey(_browseHistoryKey) : null;
+    final title = isWelcomeStep ? 'Welcome Tutorial' : 'View Logs';
+    final description = isWelcomeStep
+        ? 'This walkthrough will show you groups, creating exercises, logging workouts, and where to find your history.'
+        : 'This is the Browse exercise history button. Use it to open your logs and session history.';
+    final primaryLabel = isWelcomeStep ? 'Next' : 'Done';
+
+    return Positioned.fill(
+      child: ColoredBox(
+        color: TutorialThemeTokens.overlay,
+        child: SafeArea(
+          child: Stack(
+            children: [
+              if (target != null)
+                Positioned(
+                  left: target.left - 4,
+                  top: target.top - 4,
+                  child: IgnorePointer(
+                    child: Container(
+                      width: target.width + 8,
+                      height: target.height + 8,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: TutorialThemeTokens.border,
+                          width: 2.5,
                         ),
-                        const SizedBox(width: 8),
-                        FilledButton(
-                          onPressed: () =>
-                              Navigator.of(dialogContext).pop(true),
-                          style: FilledButton.styleFrom(
-                            backgroundColor: TutorialThemeTokens.button,
-                            foregroundColor: Colors.white,
-                            textStyle: TutorialThemeTokens.buttonStyle,
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color(0xAA93C5FD),
+                            blurRadius: 12,
+                            spreadRadius: 1,
                           ),
-                          child: const Text('Start'),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ],
+                  ),
+                ),
+              Align(
+                alignment: isViewLogsStep
+                    ? Alignment.topCenter
+                    : Alignment.center,
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    10,
+                    isViewLogsStep ? 14 : 0,
+                    10,
+                    0,
+                  ),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: 560,
+                      maxHeight: (size.height * 0.24).clamp(140.0, 185.0),
+                    ),
+                    child: TutorialPanel(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(title, style: TutorialThemeTokens.titleStyle),
+                          const SizedBox(height: 6),
+                          Text(
+                            description,
+                            style: TutorialThemeTokens.bodyStyle,
+                          ),
+                          const Spacer(),
+                          Row(
+                            children: [
+                              TextButton(
+                                onPressed: _closeTutorialOverlay,
+                                style: TextButton.styleFrom(
+                                  foregroundColor: TutorialThemeTokens.title,
+                                  textStyle: TutorialThemeTokens.buttonStyle,
+                                ),
+                                child: const Text('Skip'),
+                              ),
+                              Expanded(
+                                child: Center(
+                                  child: TutorialDots(
+                                    count: _tutorialTotalSteps,
+                                    currentIndex: _tutorialStep,
+                                  ),
+                                ),
+                              ),
+                              Row(
+                                children: [
+                                  if (isViewLogsStep) ...[
+                                    OutlinedButton(
+                                      onPressed: _onHomeTutorialBack,
+                                      style: OutlinedButton.styleFrom(
+                                        side: const BorderSide(
+                                          color: TutorialThemeTokens.border,
+                                        ),
+                                        foregroundColor:
+                                            TutorialThemeTokens.title,
+                                        textStyle:
+                                            TutorialThemeTokens.buttonStyle,
+                                      ),
+                                      child: const Text('Back'),
+                                    ),
+                                    const SizedBox(width: 8),
+                                  ],
+                                  FilledButton(
+                                    onPressed: _onHomeTutorialPrimary,
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor:
+                                          TutorialThemeTokens.button,
+                                      foregroundColor: Colors.white,
+                                      textStyle:
+                                          TutorialThemeTokens.buttonStyle,
+                                    ),
+                                    child: Text(primaryLabel),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
               ),
-            ),
+            ],
           ),
-        );
-      },
+        ),
+      ),
     );
+  }
+
+  Rect? _rectForKey(GlobalKey key) {
+    final targetContext = key.currentContext;
+    if (targetContext == null) return null;
+    final renderObject = targetContext.findRenderObject();
+    if (renderObject is! RenderBox || !renderObject.hasSize) return null;
+    final origin = renderObject.localToGlobal(Offset.zero);
+    return origin & renderObject.size;
   }
 
   Future<void> _loadUsername() async {
@@ -239,79 +378,89 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        automaticallyImplyLeading: false,
-        toolbarHeight: 100,
-        title: Padding(
-          padding: const EdgeInsets.only(top: 24),
-          child: Text(
-            'Hello, $_username',
-            style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
-          ),
-        ),
-        centerTitle: true,
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            WorkoutCalendar(
-              month: DateTime.now(),
-              loggedDates: _loggedDates,
-              onDateSelected: (date) {
-                Navigator.of(
-                  context,
-                ).pushNamed('/history/day', arguments: {'date': date});
-              },
-            ),
-            const SizedBox(height: 12),
-            ElevatedButton.icon(
-              onPressed: () => Navigator.of(context).pushNamed('/history/year'),
-              icon: const Icon(Icons.calendar_month_outlined),
-              label: const Text('View more logged days'),
-            ),
-            const SizedBox(height: 12),
-            ElevatedButton.icon(
-              onPressed: () => Navigator.of(context).pushNamed('/stats'),
-              icon: const Icon(Icons.insights_outlined),
-              label: const Text('Stats'),
-            ),
-            const SizedBox(height: 12),
-            GestureDetector(
-              onTap: () => Navigator.of(context).pushNamed('/history'),
-              child: Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: const [
-                    Expanded(
-                      child: Text(
-                        'Browse exercise history',
-                        style: TextStyle(
-                          color: Colors.black87,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    Icon(Icons.history, color: Colors.black87),
-                  ],
+    return Stack(
+      children: [
+        Scaffold(
+          appBar: AppBar(
+            automaticallyImplyLeading: false,
+            toolbarHeight: 100,
+            title: Padding(
+              padding: const EdgeInsets.only(top: 24),
+              child: Text(
+                'Hello, $_username',
+                style: const TextStyle(
+                  fontSize: 32,
+                  fontWeight: FontWeight.bold,
                 ),
               ),
             ),
-          ],
+            centerTitle: true,
+          ),
+          body: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                WorkoutCalendar(
+                  month: DateTime.now(),
+                  loggedDates: _loggedDates,
+                  onDateSelected: (date) {
+                    Navigator.of(
+                      context,
+                    ).pushNamed('/history/day', arguments: {'date': date});
+                  },
+                ),
+                const SizedBox(height: 12),
+                ElevatedButton.icon(
+                  onPressed: () =>
+                      Navigator.of(context).pushNamed('/history/year'),
+                  icon: const Icon(Icons.calendar_month_outlined),
+                  label: const Text('View more logged days'),
+                ),
+                const SizedBox(height: 12),
+                ElevatedButton.icon(
+                  onPressed: () => Navigator.of(context).pushNamed('/stats'),
+                  icon: const Icon(Icons.insights_outlined),
+                  label: const Text('Stats'),
+                ),
+                const SizedBox(height: 12),
+                GestureDetector(
+                  key: _browseHistoryKey,
+                  onTap: () => Navigator.of(context).pushNamed('/history'),
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: const [
+                        Expanded(
+                          child: Text(
+                            'Browse exercise history',
+                            style: TextStyle(
+                              color: Colors.black87,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        Icon(Icons.history, color: Colors.black87),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          bottomNavigationBar: BottomNavBar(
+            currentIndex: _selectedIndex,
+            onTap: _onNavTap,
+          ),
         ),
-      ),
-      bottomNavigationBar: BottomNavBar(
-        currentIndex: _selectedIndex,
-        onTap: _onNavTap,
-      ),
+        if (_showTutorialOverlay) _buildHomeTutorialOverlay(),
+      ],
     );
   }
 }
