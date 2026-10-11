@@ -18,7 +18,7 @@ class BodyWeightPoint {
 /// Holding a finger/mouse down on the chart shows a tooltip with the exact
 /// date and weight for the nearest point, mirroring the exercise progress
 /// graph's long-press behaviour.
-class BodyWeightChart extends StatefulWidget {
+class BodyWeightChart extends StatefulWidget { 
   const BodyWeightChart({
     super.key,
     required this.points,
