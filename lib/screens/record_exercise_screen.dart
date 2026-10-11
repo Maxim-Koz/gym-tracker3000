@@ -42,6 +42,7 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
   bool _showNoteField = false;
   bool _isOneRepMax = false;
   bool _ignoreInGraph = false;
+  bool _isSavingSession = false;
   List<Map<String, dynamic>> _bodyWeights = [];
 
   Widget _buildSessionFlagToggle({
@@ -367,6 +368,8 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
   }
 
   Future<void> _saveSession() async {
+    if (_isSavingSession) return;
+
     final exerciseId = _exercise?['id'] as int?;
     if (exerciseId == null) {
       ScaffoldMessenger.of(
@@ -395,70 +398,97 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
       return;
     }
 
+    setState(() => _isSavingSession = true);
     final noteText = _noteController.text.trim();
     final encodedNote = encodeSessionNote(
       noteText.isEmpty ? null : noteText,
       isOneRepMax: _isOneRepMax,
       ignoreInGraph: _ignoreInGraph,
     );
-    final sessionId = await DBHelper().insertSession(
-      exerciseId,
-      DateTime.now(),
-      note: encodedNote.isEmpty ? null : encodedNote,
-    );
-
-    final setEntries = collectValidSetEntries(
-      type: _selectedType,
-      normalRows: _normalRows,
-      dropGroups: _dropGroups,
-      isOneRepMax: _isOneRepMax,
-    );
-
-    for (final entry in setEntries) {
-      final groupIndex = entry['groupIndex'] as int?;
-      if (groupIndex != null) {
-        await DBHelper().insertSet(
-          sessionId,
-          entry['weight'] as double,
-          entry['reps'] as int,
-          entry['unit'] as String,
-          groupIndex: groupIndex,
+    int? sessionId;
+    try {
+      try {
+        final createdSessionId = await DBHelper().insertSession(
+          exerciseId,
+          DateTime.now(),
+          note: encodedNote.isEmpty ? null : encodedNote,
         );
-      } else {
-        final setId = await DBHelper().insertSet(
-          sessionId,
-          entry['weight'] as double,
-          entry['reps'] as int,
-          entry['unit'] as String,
+        sessionId = createdSessionId;
+
+        final setEntries = collectValidSetEntries(
+          type: _selectedType,
+          normalRows: _normalRows,
+          dropGroups: _dropGroups,
+          isOneRepMax: _isOneRepMax,
         );
-        final restPauses = entry['restPauses'] as List<int>? ?? [];
-        for (final pauseReps in restPauses) {
-          await DBHelper().insertSet(
-            sessionId,
-            entry['weight'] as double,
-            pauseReps,
-            entry['unit'] as String,
-            parentSetId: setId,
-          );
+
+        for (final entry in setEntries) {
+          final groupIndex = entry['groupIndex'] as int?;
+          if (groupIndex != null) {
+            await DBHelper().insertSet(
+              createdSessionId,
+              entry['weight'] as double,
+              entry['reps'] as int,
+              entry['unit'] as String,
+              groupIndex: groupIndex,
+            );
+          } else {
+            final setId = await DBHelper().insertSet(
+              createdSessionId,
+              entry['weight'] as double,
+              entry['reps'] as int,
+              entry['unit'] as String,
+            );
+            final restPauses = entry['restPauses'] as List<int>? ?? [];
+            for (final pauseReps in restPauses) {
+              await DBHelper().insertSet(
+                createdSessionId,
+                entry['weight'] as double,
+                pauseReps,
+                entry['unit'] as String,
+                parentSetId: setId,
+              );
+            }
+          }
         }
+      } catch (_) {
+        var cleanupSucceeded = sessionId == null;
+        if (sessionId != null) {
+          try {
+            await DBHelper().deleteSession(sessionId);
+            cleanupSucceeded = true;
+          } catch (_) {}
+        }
+        if (mounted) {
+          final message = cleanupSucceeded
+              ? 'Could not save the session. Check history before retrying.'
+              : 'Save failed; an incomplete log may remain. Check history before retrying.';
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(message)));
+        }
+        return;
+      }
+
+      if (!mounted) return;
+      await _loadSessions();
+      if (!mounted) return;
+      SessionDraftStore().clear(exerciseId);
+      _rebuildRows(type: _selectedType);
+      setState(() {
+        _noteController.clear();
+        _showNoteField = false;
+        _isOneRepMax = false;
+        _ignoreInGraph = false;
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Session saved')));
+    } finally {
+      if (mounted && _isSavingSession) {
+        setState(() => _isSavingSession = false);
       }
     }
-
-    if (!mounted) return;
-    await _loadSessions();
-    if (!mounted) return;
-    SessionDraftStore().clear(exerciseId);
-    _rebuildRows(type: _selectedType);
-    setState(() {
-      _noteController.clear();
-      _showNoteField = false;
-      _isOneRepMax = false;
-      _ignoreInGraph = false;
-    });
-    if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Session saved')));
   }
 
   String get _exerciseInfo {
@@ -681,7 +711,7 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
                     children: [
                       _buildSessionFlagToggle(
                         value: _isOneRepMax,
-                        label: '1rm',
+                        label: '1RM',
                         tooltip:
                             'Treat this as a one-rep max entry. Reps are fixed to 1.',
                         onChanged: (value) {
@@ -981,8 +1011,10 @@ class _RecordExerciseScreenState extends State<RecordExerciseScreen> {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: _saveSession,
-                      child: const Text('Save session'),
+                      onPressed: _isSavingSession ? null : _saveSession,
+                      child: Text(
+                        _isSavingSession ? 'Saving...' : 'Save session',
+                      ),
                     ),
                   ),
                 ],
