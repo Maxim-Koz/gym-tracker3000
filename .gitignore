@@ -51,4 +51,4 @@ app.*.map.json
 *.keystore
 
 # Android signing properties
-android/key.properties
+android/key.propertiesandroid/build/
