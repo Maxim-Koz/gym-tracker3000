@@ -33,14 +33,16 @@ Reptr remembers for you. It logs the weight and reps for every exercise so you n
 
 
 
-## Tech stack
+## Built with
 
-Built with Dart and Flutter.
+    Dart
+    Flutter 
+
 
 ## Getting started
 
-<!-- How to download/build, e.g. `flutter pub get` then `flutter run` -->
+Reptr is currently available through closed testing on Google Play. To request access, [email minimsgymtracker@gmail.com](mailto:minimsgymtracker@gmail.com) with the Google account email address you use for Google Play. Once you’re added as a tester, we’ll send you the link to join the test.
 
 ## License
 
-<!-- e.g. MIT -->
+GPL-3.0 license
