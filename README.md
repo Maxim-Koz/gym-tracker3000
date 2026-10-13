@@ -23,13 +23,13 @@ Reptr remembers for you. It logs the weight and reps for every exercise so you n
 
 ## Screenshots
 
-<img src="assets/phone_screenshot/Screenshot1.jpg" alt="Reptr logo" width="300"><img src="assets/phone_screenshot/Screenshot2.jpg" alt="Reptr logo" width="300">
+<img src="assets/phone_screenshot/Screenshot1.jpg" alt="Reptr logo" width="300"> &nbsp; &nbsp; <img src="assets/phone_screenshot/Screenshot2.jpg" alt="Reptr logo" width="300">
 
-<img src="assets/phone_screenshot/Screenshot3.jpg" alt="Reptr logo" width="300"><img src="assets/phone_screenshot/Screenshot4.jpg" alt="Reptr logo" width="300">
+<img src="assets/phone_screenshot/Screenshot3.jpg" alt="Reptr logo" width="300"> &nbsp; &nbsp;<img src="assets/phone_screenshot/Screenshot4.jpg" alt="Reptr logo" width="300">
 
-<img src="assets/phone_screenshot/Screenshot5.jpg" alt="Reptr logo" width="300"><img src="assets/phone_screenshot/Screenshot6.jpg" alt="Reptr logo" width="300">
+<img src="assets/phone_screenshot/Screenshot5.jpg" alt="Reptr logo" width="300"> &nbsp; &nbsp;<img src="assets/phone_screenshot/Screenshot6.jpg" alt="Reptr logo" width="300">
 
-<img src="assets/phone_screenshot/Screenshot7.jpg" alt="Reptr logo" width="300"><img src="assets/phone_screenshot/Screenshot8.jpg" alt="Reptr logo" width="300">
+<img src="assets/phone_screenshot/Screenshot7.jpg" alt="Reptr logo" width="300"> &nbsp; &nbsp; <img src="assets/phone_screenshot/Screenshot8.jpg" alt="Reptr logo" width="300">
 
 
 
