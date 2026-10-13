@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.png" alt="Reptr logo" width="120">
+  <img src="assets/Banner/Banner.png" alt="Reptr logo" width="120">
 </p>
 
 # Reptr
