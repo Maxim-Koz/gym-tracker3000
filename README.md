@@ -23,7 +23,15 @@ Reptr remembers for you. It logs the weight and reps for every exercise so you n
 
 ## Screenshots
 
-<!-- Add 3–4 screenshots or a short GIF here -->
+<img src="assets/phone_screenshots/Screenshot1" alt="Reptr logo" width="100%">
+<img src="assets/phone_screenshots/Screenshot2" alt="Reptr logo" width="100%">
+<img src="assets/phone_screenshots/Screenshot3" alt="Reptr logo" width="100%">
+<img src="assets/phone_screenshots/Screenshot4" alt="Reptr logo" width="100%">
+<img src="assets/phone_screenshots/Screenshot5" alt="Reptr logo" width="100%">
+<img src="assets/phone_screenshots/Screenshot6" alt="Reptr logo" width="100%">
+<img src="assets/phone_screenshots/Screenshot7" alt="Reptr logo" width="100%">
+<img src="assets/phone_screenshots/Screenshot8" alt="Reptr logo" width="100%">
+
 
 ## Tech stack
 
