@@ -1,0 +1,5 @@
+web/** linguist-vendored
+linux/** linguist-vendored
+windows/** linguist-vendored
+macos/** linguist-vendored
+ios/** linguist-vendored
